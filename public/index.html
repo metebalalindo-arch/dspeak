@@ -1147,6 +1147,16 @@
       });
     }
 
+    // Quando entramos numa call que já tem alguém transmitindo (ex: após dar F5 e
+    // voltar pra sala), não temos nada pra enviar — então precisamos pedir
+    // explicitamente para RECEBER a live, senão nenhuma oferta é disparada sozinha.
+    function ensureReceiveTransceiver(pc) {
+      if (pc.getSenders().length === 0 && pc.getTransceivers().length === 0) {
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+      }
+    }
+
     function createPeerConnection(targetSocketId) {
       if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
 
@@ -1230,13 +1240,15 @@
       }
     });
 
-    // Só precisamos garantir que a conexão exista e tenha nossas faixas.
-    // A oferta é disparada sozinha pelo onnegotiationneeded do createPeerConnection/addLocalTracksToPeer.
+    // Só precisamos garantir que a conexão exista e tenha nossas faixas (se estivermos
+    // transmitindo) ou pedir para receber (se estivermos só entrando pra assistir).
+    // A oferta é disparada sozinha pelo onnegotiationneeded.
     socket.on('sync-active-streams', (streamingSocketIds) => {
       streamingSocketIds.forEach(targetSocketId => {
         if (targetSocketId !== socket.id) {
           const pc = createPeerConnection(targetSocketId);
           addLocalTracksToPeer(pc);
+          ensureReceiveTransceiver(pc);
         }
       });
     });
