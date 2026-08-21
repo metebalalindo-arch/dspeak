@@ -1,22 +1,97 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  maxHttpBufferSize: 1e7 // Permite envio de fotos de perfil via Base64 (até 10MB)
+});
 
-app.use(express.static('public'));
+// Serve os arquivos estáticos (HTML, CSS, JS) da pasta public
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Rota principal apontando corretamente para o index.html dentro da pasta public
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Armazena a lista de usuários conectados em cada canal de voz
+// Estrutura: { canalId: [ { socketId, name, gradient, avatar } ] }
+const voiceUsers = {};
 
 io.on('connection', (socket) => {
-    console.log('Um usuário se conectou:', socket.id);
+  console.log(`Usuário conectado: ${socket.id}`);
 
-    socket.on('chat-message', (data) => {
-        io.emit('chat-message', data);
+  // Entrar em uma sala de texto ou canal
+  socket.on('join-room', (roomId) => {
+    socket.join(roomId);
+  });
+
+  // Transmissão de mensagens do chat
+  socket.on('chat-message', (data) => {
+    if (data.room) {
+      io.to(data.room).emit('chat-message', data);
+    }
+  });
+
+  // Entrar em um canal de voz
+  socket.on('join-voice-room', (data) => {
+    const { channelId, username, gradient, avatar } = data;
+
+    if (!voiceUsers[channelId]) {
+      voiceUsers[channelId] = [];
+    }
+
+    // Remove conexão antiga do mesmo socket se existir
+    voiceUsers[channelId] = voiceUsers[channelId].filter(u => u.socketId !== socket.id);
+
+    // Adiciona o usuário atualizado à lista da sala
+    voiceUsers[channelId].push({
+      socketId: socket.id,
+      name: username,
+      gradient: gradient,
+      avatar: avatar || null
     });
+
+    // Guarda o canal atual na sessão do socket
+    socket.currentVoiceChannel = channelId;
+
+    // Atualiza todos os clientes sobre a lista de voz
+    io.emit('update-voice-users', voiceUsers);
+  });
+
+  // Sair de um canal de voz
+  socket.on('leave-voice-room', (data) => {
+    const channelId = data.channelId || socket.currentVoiceChannel;
+    
+    if (channelId && voiceUsers[channelId]) {
+      voiceUsers[channelId] = voiceUsers[channelId].filter(u => u.socketId !== socket.id);
+      socket.leave(channelId);
+      delete socket.currentVoiceChannel;
+      
+      io.emit('update-voice-users', voiceUsers);
+    }
+  });
+
+  // Limpeza quando o usuário fecha a aba ou desconecta
+  socket.on('disconnect', () => {
+    console.log(`Usuário desconectado: ${socket.id}`);
+    
+    if (socket.currentVoiceChannel && voiceUsers[socket.currentVoiceChannel]) {
+      voiceUsers[socket.currentVoiceChannel] = voiceUsers[socket.currentVoiceChannel].filter(
+        u => u.socketId !== socket.id
+      );
+      io.emit('update-voice-users', voiceUsers);
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`\n==============================================`);
+  console.log(` Servidor DSpeak rodando com sucesso!`);
+  console.log(` Acesse em: http://localhost:${PORT}`);
+  console.log(`==============================================\n`);
 });
