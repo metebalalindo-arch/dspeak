@@ -1,106 +1,72 @@
-let peerConnections = {};
-    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
 
-    async function toggleScreenShare() {
-      if (!localStream) {
-        startScreenShare();
-      } else {
-        stopScreenShare();
-      }
-    }
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { maxHttpBufferSize: 1e7 });
 
-    async function startScreenShare() {
-      try {
-        localStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        addScreenStream(username, localStream);
+app.use(express.static(path.join(__dirname, 'public')));
 
-        // Avisa o servidor e os membros da sala que iniciou a live
-        socket.emit('update-streaming-status', { channelId: connectedVoiceChannel, isStreaming: true });
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
-        const shareBtn = document.getElementById('stage-share-btn');
-        shareBtn.classList.add('active-share');
+const voiceUsers = {};
 
-        // Envia oferta WebRTC para todos os usuários na mesma sala de voz
-        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
-        usersInChannel.forEach(u => {
-          if (u.name !== username) {
-            createPeerConnection(u.socketId, true);
-          }
-        });
+io.on('connection', (socket) => {
+    console.log(`Conectado: ${socket.id}`);
 
-        localStream.getVideoTracks()[0].onended = () => stopScreenShare();
-      } catch (err) { console.error("Erro ao transmitir:", err); }
-    }
+    socket.on('register-user', (data) => {
+        socket.username = data.username;
+        socket.avatarUrl = data.avatarUrl;
+    });
 
-    function stopScreenShare() {
-      if (localStream) {
-        localStream.getTracks().forEach(t => t.stop());
-        localStream = null;
-      }
-      removeScreenStream(username);
-      socket.emit('update-streaming-status', { channelId: connectedVoiceChannel, isStreaming: false });
+    socket.on('join-room', (roomId) => {
+        socket.join(roomId);
+    });
 
-      // Fecha conexões WebRTC ativas
-      Object.keys(peerConnections).forEach(socketId => {
-        peerConnections[socketId].close();
-        delete peerConnections[socketId];
-      });
+    socket.on('chat-message', (data) => {
+        io.to(data.room).emit('chat-message', data);
+    });
 
-      const shareBtn = document.getElementById('stage-share-btn');
-      shareBtn.classList.remove('active-share');
-    }
+    socket.on('ping-check', (callback) => {
+        if (typeof callback === 'function') callback();
+    });
 
-    function createPeerConnection(targetSocketId, isInitiator) {
-      if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
+    socket.on('join-voice-room', (data) => {
+        const { channelId, username, avatarUrl } = data;
+        if (!voiceUsers[channelId]) voiceUsers[channelId] = [];
+        
+        voiceUsers[channelId] = voiceUsers[channelId].filter(u => u.socketId !== socket.id);
+        voiceUsers[channelId].push({ socketId: socket.id, name: username, avatarUrl, isStreaming: false });
 
-      const pc = new RTCPeerConnection(rtcConfig);
-      peerConnections[targetSocketId] = pc;
+        socket.currentVoiceChannel = channelId;
+        socket.join(channelId);
+        io.emit('update-voice-users', voiceUsers);
+    });
 
-      if (localStream) {
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      }
-
-      pc.ontrack = (event) => {
-        // Recebe o stream remoto de outro usuário transmitindo
-        addScreenStream(targetSocketId, event.streams[0]);
-      };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('webrtc-candidate', { targetSocketId, candidate: event.candidate });
+    socket.on('update-streaming-status', (data) => {
+        const { channelId, isStreaming } = data;
+        if (voiceUsers[channelId]) {
+            const user = voiceUsers[channelId].find(u => u.socketId === socket.id);
+            if (user) { user.isStreaming = isStreaming; io.emit('update-voice-users', voiceUsers); }
         }
-      };
-
-      if (isInitiator) {
-        pc.createOffer().then(offer => {
-          return pc.setLocalDescription(offer);
-        }).then(() => {
-          socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription, username });
-        }).catch(err => console.error("Erro ao criar offer:", err));
-      }
-
-      return pc;
-    }
-
-    // Ouvintes de sinalização WebRTC via Socket.io
-    socket.on('webrtc-offer', async (data) => {
-      const pc = createPeerConnection(data.senderSocketId, false);
-      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer });
     });
 
-    socket.on('webrtc-answer', async (data) => {
-      const pc = peerConnections[data.senderSocketId];
-      if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-      }
-    });
+    // Sinalização WebRTC
+    socket.on('webrtc-offer', (data) => { socket.to(data.targetSocketId).emit('webrtc-offer', { senderSocketId: socket.id, offer: data.offer }); });
+    socket.on('webrtc-answer', (data) => { socket.to(data.targetSocketId).emit('webrtc-answer', { senderSocketId: socket.id, answer: data.answer }); });
+    socket.on('webrtc-candidate', (data) => { socket.to(data.targetSocketId).emit('webrtc-candidate', { senderSocketId: socket.id, candidate: data.candidate }); });
 
-    socket.on('webrtc-candidate', async (data) => {
-      const pc = peerConnections[data.senderSocketId];
-      if (pc) {
-        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-      }
+    socket.on('disconnect', () => {
+        if (socket.currentVoiceChannel && voiceUsers[socket.currentVoiceChannel]) {
+            voiceUsers[socket.currentVoiceChannel] = voiceUsers[socket.currentVoiceChannel].filter(u => u.socketId !== socket.id);
+            io.emit('update-voice-users', voiceUsers);
+        }
     });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log(`Servidor DSpeak online na porta ${PORT}`));
