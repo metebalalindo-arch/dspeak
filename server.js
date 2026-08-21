@@ -6,43 +6,36 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  maxHttpBufferSize: 1e7 // Permite envio de fotos de perfil via Base64 (até 10MB)
+  maxHttpBufferSize: 1e7
 });
 
-// Serve os arquivos estáticos da pasta public
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rota principal
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Armazena usuários nos canais de voz
 const voiceUsers = {};
 
 io.on('connection', (socket) => {
   console.log(`Usuário conectado: ${socket.id}`);
 
-  // Entrar em uma sala de texto
   socket.on('join-room', (roomId) => {
     socket.join(roomId);
   });
 
-  // Mensagens do chat de texto
   socket.on('chat-message', (data) => {
     if (data.room) {
       io.to(data.room).emit('chat-message', data);
     }
   });
 
-  // Teste de Ping / Latência
   socket.on('ping-check', (callback) => {
     if (typeof callback === 'function') callback();
   });
 
-  // Entrar em um canal de voz
   socket.on('join-voice-room', (data) => {
-    const { channelId, username, gradient, avatar } = data;
+    const { channelId, username, avatarUrl } = data;
 
     if (!voiceUsers[channelId]) {
       voiceUsers[channelId] = [];
@@ -53,16 +46,15 @@ io.on('connection', (socket) => {
     voiceUsers[channelId].push({
       socketId: socket.id,
       name: username,
-      gradient: gradient,
-      avatar: avatar || null,
+      avatarUrl: avatarUrl || null,
       isStreaming: false
     });
 
     socket.currentVoiceChannel = channelId;
+    socket.join(channelId);
     io.emit('update-voice-users', voiceUsers);
   });
 
-  // Atualizar status de transmissão ao vivo (AO VIVO)
   socket.on('update-streaming-status', (statusData) => {
     const { channelId, isStreaming } = statusData;
     if (channelId && voiceUsers[channelId]) {
@@ -74,15 +66,29 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Relay de sinalização WebRTC para vídeo/transmissão na sala
-  socket.on('webrtc-signal', (data) => {
-    socket.to(data.targetSocketId).emit('webrtc-signal', {
+  // Sinalização WebRTC para transmissão de vídeo/tela entre os membros da sala
+  socket.on('webrtc-offer', (data) => {
+    socket.to(data.targetSocketId).emit('webrtc-offer', {
       senderSocketId: socket.id,
-      signal: data.signal
+      offer: data.offer,
+      username: data.username
     });
   });
 
-  // Sair de um canal de voz
+  socket.on('webrtc-answer', (data) => {
+    socket.to(data.targetSocketId).emit('webrtc-answer', {
+      senderSocketId: socket.id,
+      answer: data.answer
+    });
+  });
+
+  socket.on('webrtc-candidate', (data) => {
+    socket.to(data.targetSocketId).emit('webrtc-candidate', {
+      senderSocketId: socket.id,
+      candidate: data.candidate
+    });
+  });
+
   socket.on('leave-voice-room', (data) => {
     const channelId = data?.channelId || socket.currentVoiceChannel;
     if (channelId && voiceUsers[channelId]) {
@@ -93,7 +99,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Desconexão geral
   socket.on('disconnect', () => {
     console.log(`Usuário desconectado: ${socket.id}`);
     if (socket.currentVoiceChannel && voiceUsers[socket.currentVoiceChannel]) {
@@ -107,5 +112,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Servidor DSpeak rodando na porta ${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
