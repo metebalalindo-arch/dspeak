@@ -31,6 +31,10 @@
       100% { opacity: 1; }
     }
 
+    #toast-container { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 8px; z-index: 9000; }
+    .toast-item { background: #181b24; border: 1px solid rgba(255, 85, 0, 0.4); color: #f2f3f5; padding: 12px 16px; border-radius: 10px; font-size: 13px; max-width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); animation: toast-in 0.2s ease; }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
     #auth-overlay { position: fixed; inset: 0; background: rgba(12, 13, 16, 0.95); backdrop-filter: blur(12px); z-index: 5000; display: flex; align-items: center; justify-content: center; }
     .auth-card { background: #13151b; width: 420px; padding: 32px; border-radius: 16px; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 20px 50px rgba(0,0,0,0.9), 0 0 30px rgba(255, 85, 0, 0.2); display: flex; flex-direction: column; gap: 20px; }
     .auth-logo { font-size: 24px; font-weight: 800; color: #ff5500; text-align: center; text-shadow: 0 0 12px rgba(255,85,0,0.5); }
@@ -208,6 +212,25 @@
     .stream-fullscreen-btn:hover { background: #ff5500; }
     .stream-fullscreen-btn svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 2; fill: none; }
 
+    .stream-close-btn {
+      position: absolute; top: 12px; right: 52px; background: rgba(12, 13, 16, 0.85); backdrop-filter: blur(8px); border: 1px solid rgba(255, 51, 51, 0.4);
+      color: #fff; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; z-index: 10;
+    }
+    .stream-close-btn:hover { background: #ff3333; }
+    .stream-close-btn svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 2; fill: none; }
+
+    .role-badge { font-size: 8px; font-weight: 800; letter-spacing: 0.4px; padding: 1px 5px; border-radius: 4px; border: 1px solid; flex-shrink: 0; }
+    .role-manage-btn { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: #b5bac1; width: 20px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .role-manage-btn:hover { background: #ff5500; color: #fff; border-color: #ff5500; }
+
+    .role-modal-user { text-align: center; font-size: 15px; font-weight: bold; color: #f2f3f5; margin-bottom: 4px; }
+    .role-modal-current { text-align: center; font-size: 12px; color: #8a8f9d; margin-bottom: 16px; }
+    .role-option-btn { background: #181b24; border: 1.5px solid rgba(255,255,255,0.08); color: #f2f3f5; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; text-align: left; transition: all 0.15s; }
+    .role-option-btn:hover { border-color: #ff5500; background: rgba(255, 85, 0, 0.1); }
+    .role-option-btn.current { border-color: #00ffcc; background: rgba(0, 255, 204, 0.08); cursor: default; }
+    .role-pull-btn { background: rgba(0, 255, 204, 0.12); border: 1.5px solid rgba(0, 255, 204, 0.4); color: #00ffcc; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 700; margin-top: 6px; }
+    .role-pull-btn:hover { background: #00ffcc; color: #0c0d10; }
+
     .connected-users-stage { display: flex; flex-wrap: wrap; gap: 8px; align-content: center; justify-content: center; overflow-y: auto; max-height: 130px; padding: 4px; flex-shrink: 0; }
 
     .user-card { width: 90px; height: 90px; border-radius: 12px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.6); gap: 4px; }
@@ -269,6 +292,8 @@
 </head>
 <body>
 
+  <div id="toast-container"></div>
+
   <div id="auth-overlay">
     <div class="auth-card">
       <div class="auth-logo">DSPEAK CLIENT</div>
@@ -286,8 +311,6 @@
 
   <div id="servers-sidebar">
     <div id="servers-list-container" style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%;"></div>
-    <div class="server-divider"></div>
-    <div class="server-icon action-icon" onclick="openCreateServerModal()" title="Adicionar Servidor">+</div>
   </div>
 
   <div id="sidebar">
@@ -305,13 +328,13 @@
       <div class="server-channels-scroll-area">
         <div class="section-header">
           <span>Canais de Texto</span>
-          <span class="add-channel-btn" onclick="openCreateChannel('text')" title="Criar canal de texto">+</span>
+          <span class="add-channel-btn" id="add-text-channel-btn" onclick="openCreateChannel('text')" title="Criar canal de texto">+</span>
         </div>
         <div class="channel-list" id="text-channels"></div>
 
         <div class="section-header" style="margin-top: 10px;">
           <span>Canais de Voz</span>
-          <span class="add-channel-btn" onclick="openCreateChannel('voice')" title="Criar canal de voz">+</span>
+          <span class="add-channel-btn" id="add-voice-channel-btn" onclick="openCreateChannel('voice')" title="Criar canal de voz">+</span>
         </div>
         <div class="channel-list" id="voice-channels"></div>
       </div>
@@ -473,24 +496,24 @@
 
             <div class="opt-sec-label">RESOLUÇÃO DE VÍDEO</div>
             <div class="opt-grid">
-              <div class="opt-card selected" id="opt-res-720" onclick="selectRes('720')">
+              <div class="opt-card" id="opt-res-720" onclick="selectRes('720')">
                 <div><div class="opt-card-title">720p HD</div><div class="opt-card-sub">Otimizado para conexões rápidas</div></div>
                 <div class="opt-radio-dot"></div>
               </div>
-              <div class="opt-card" id="opt-res-1080" onclick="selectRes('1080')">
-                <div><div class="opt-card-title">1080p Full HD</div><div class="opt-card-sub">Qualidade máxima de definição</div></div>
+              <div class="opt-card selected" id="opt-res-1080" onclick="selectRes('1080')">
+                <div><div class="opt-card-title">1080p Full HD</div><div class="opt-card-sub">Qualidade máxima de definição (padrão)</div></div>
                 <div class="opt-radio-dot"></div>
               </div>
             </div>
 
             <div class="opt-sec-label" style="margin-top: 6px;">TAXA DE QUADROS (FPS)</div>
             <div class="opt-grid">
-              <div class="opt-card selected" id="opt-fps-30" onclick="selectFps('30')">
+              <div class="opt-card" id="opt-fps-30" onclick="selectFps('30')">
                 <div><div class="opt-card-title">30 FPS</div><div class="opt-card-sub">Padrão fluido para chamadas</div></div>
                 <div class="opt-radio-dot"></div>
               </div>
-              <div class="opt-card" id="opt-fps-60" onclick="selectFps('60')">
-                <div><div class="opt-card-title">60 FPS</div><div class="opt-card-sub">Ultra-fluido para jogos e vídeos</div></div>
+              <div class="opt-card selected" id="opt-fps-60" onclick="selectFps('60')">
+                <div><div class="opt-card-title">60 FPS</div><div class="opt-card-sub">Ultra-fluido para jogos e vídeos (padrão)</div></div>
                 <div class="opt-radio-dot"></div>
               </div>
             </div>
@@ -514,7 +537,7 @@
         <p>Arraste e use o zoom para moldar do jeito que quiser.</p>
       </div>
       <div class="crop-viewport" id="crop-viewport">
-        <img id="crop-image" draggable="false" alt="Prévia da foto" />
+        <img id="crop-image" draggable="false" alt="Prévia da foto" style="position:absolute; top:0; left:0; max-width:none; border-radius:0;" />
       </div>
       <input type="range" id="crop-zoom-slider" min="100" max="300" value="100" oninput="updateCropTransform()" style="width:100%;margin-top:16px;accent-color:#ff5500;" />
       <div class="crop-hint">Zoom</div>
@@ -550,20 +573,15 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="create-server-modal">
-    <div class="modal">
-      <button class="modal-close-btn" onclick="closeModal('create-server-modal')">✕</button>
+  <div class="modal-overlay" id="role-modal">
+    <div class="modal" style="width: 340px;">
+      <button class="modal-close-btn" onclick="closeModal('role-modal')">✕</button>
       <div class="modal-header-center">
-        <h2>Criar Servidor</h2>
+        <h2>Gerenciar Usuário</h2>
       </div>
-      <div class="modal-field">
-        <label>Nome do Servidor</label>
-        <input type="text" id="new-server-name-input" placeholder="Servidor DSpeak" />
-      </div>
-      <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
-        <button class="btn-cancel" onclick="closeModal('create-server-modal')">Cancelar</button>
-        <button class="btn-create" onclick="confirmCreateServer()">Criar</button>
-      </div>
+      <div class="role-modal-user" id="role-modal-username">—</div>
+      <div class="role-modal-current" id="role-modal-current-role">Cargo atual: —</div>
+      <div id="role-modal-options" style="display:flex; flex-direction:column; gap:8px;"></div>
     </div>
   </div>
 
@@ -626,8 +644,8 @@
     let connectedUsersList = [];
     let activeStreams = {};
 
-    let selectedResolution = "720";
-    let selectedFps = "30";
+    let selectedResolution = "1080";
+    let selectedFps = "60";
     let selectedInputMode = "vad";
 
     let audioContext = null;
@@ -642,9 +660,42 @@
       initials: 'DS',
       channels: [
         { id: 'geral', name: 'geral', type: 'text' },
-        { id: 'lobby', name: 'Lobby', type: 'voice' }
+        { id: 'lobby', name: 'Lobby', type: 'voice' },
+        { id: 'waiting-room-text', name: 'sala-de-espera', type: 'text' },
+        { id: 'waiting-room', name: 'Sala de Espera', type: 'voice' }
       ]
     }];
+
+    // --- Item 4: cargos (Owner / Moderador / Membro / Guest) ---
+    const WAITING_VOICE_ROOM = 'waiting-room';
+    const WAITING_TEXT_ROOM = 'waiting-room-text';
+    let myRole = 'guest';
+
+    const ROLE_LABELS = { owner: 'OWNER', moderator: 'MOD', member: 'MEMBRO', guest: 'GUEST' };
+    const ROLE_COLORS = { owner: '#ffd700', moderator: '#00ffcc', member: '#8fd3ff', guest: '#8a8f9d' };
+
+    function roleBadgeHtml(role) {
+      if (!role) return '';
+      const label = ROLE_LABELS[role] || role.toUpperCase();
+      const color = ROLE_COLORS[role] || '#8a8f9d';
+      return `<span class="role-badge" style="color:${color}; border-color:${color};">${label}</span>`;
+    }
+
+    // Retorna true se EU (myRole) tenho permissão de gerenciar o cargo desse usuário.
+    function canManageUser(targetRole) {
+      if (targetRole === 'owner') return false;
+      if (myRole === 'owner') return true;
+      if (myRole === 'moderator' && targetRole === 'guest') return true;
+      return false;
+    }
+
+    function roleManageBtnHtml(u, isSelf) {
+      if (isSelf) return '';
+      if (myRole !== 'owner' && myRole !== 'moderator') return '';
+      if (u.role === 'owner') return ''; // ninguém mexe no Owner por aqui
+      const safeName = String(u.name).replace(/'/g, "\\'");
+      return `<button class="role-manage-btn" title="Gerenciar" onclick="event.stopPropagation(); openRoleModal('${safeName}', '${u.socketId}', '${u.role || 'guest'}')">⚙</button>`;
+    }
 
     let activeServerId = 'dspeak';
     let activeChannel = 'geral';
@@ -716,6 +767,17 @@
       setupStageDockAutoHide();
     }
 
+    // Item 4: só o Owner pode criar/alterar canais do servidor.
+    function applyRolePermissionsToUI() {
+      const canManageServer = myRole === 'owner';
+      const addTextBtn = document.getElementById('add-text-channel-btn');
+      const addVoiceBtn = document.getElementById('add-voice-channel-btn');
+      const serverHeaderBtn = document.getElementById('server-header-btn');
+      if (addTextBtn) addTextBtn.style.display = canManageServer ? 'inline' : 'none';
+      if (addVoiceBtn) addVoiceBtn.style.display = canManageServer ? 'inline' : 'none';
+      if (serverHeaderBtn) serverHeaderBtn.style.cursor = canManageServer ? 'pointer' : 'default';
+    }
+
     function logoutUser() {
       localStorage.removeItem('dspeak_username');
       localStorage.removeItem('dspeak_avatar');
@@ -762,7 +824,10 @@
     async function startMicTest() {
       try {
         const deviceId = document.getElementById('select-audio-input').value;
-        const constraints = { audio: deviceId ? { deviceId: { exact: deviceId } } : true };
+        const noiseCleanConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        const constraints = {
+          audio: deviceId ? { deviceId: { exact: deviceId }, ...noiseCleanConstraints } : noiseCleanConstraints
+        };
 
         stopMicTest();
 
@@ -1012,6 +1077,10 @@
     }
 
     function openCreateChannel(type) {
+      if (myRole !== 'owner') {
+        showToast('Só o Owner pode criar ou alterar canais do servidor.');
+        return;
+      }
       document.getElementById('new-channel-type').value = type;
       document.getElementById('new-channel-name').value = '';
       openModal('channel-modal');
@@ -1031,30 +1100,12 @@
       closeModal('channel-modal');
     }
 
-    function openCreateServerModal() {
-      document.getElementById('new-server-name-input').value = `Servidor do ${username}`;
-      openModal('create-server-modal');
-    }
-
-    function confirmCreateServer() {
-      const name = document.getElementById('new-server-name-input').value.trim();
-      if (!name) return;
-      const id = name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
-      servers.push({
-        id,
-        name,
-        initials: name.substring(0, 2).toUpperCase(),
-        channels: [
-          { id: 'geral-' + id, name: 'geral', type: 'text' },
-          { id: 'lobby-' + id, name: 'Lobby', type: 'voice' }
-        ]
-      });
-      switchServer(id);
-      closeModal('create-server-modal');
-    }
-
     function toggleServerMenu(e) {
       e.stopPropagation();
+      if (myRole !== 'owner') {
+        showToast('Só o Owner pode criar ou alterar canais do servidor.');
+        return;
+      }
       const menu = document.getElementById('server-menu');
       menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
     }
@@ -1129,6 +1180,10 @@
         div.innerHTML = `<div class="channel-info"><span>${isVoice ? '🔊' : '#'}</span><span>${ch.name}</span></div>`;
         
         div.onclick = () => {
+          if (myRole === 'guest' && ch.id !== WAITING_VOICE_ROOM && ch.id !== WAITING_TEXT_ROOM) {
+            showToast('Você está como Guest e precisa aguardar na Sala de Espera até um Moderador ou Owner liberar seu acesso.');
+            return;
+          }
           activeChannel = ch.id;
           document.getElementById('chat-header-title').textContent = `${isVoice ? '🔊' : '#'} ${ch.name}`;
           if (isVoice) connectVoice(ch);
@@ -1166,16 +1221,17 @@
                 }
               }
 
-              const ping = peerPings[u.socketId];
-              const pingBadge = (!isSelf && ping != null) ? `<span class="user-ping-badge">${ping} ms</span>` : '';
+              const roleBadge = roleBadgeHtml(u.role);
+              const manageBtn = roleManageBtnHtml(u, isSelf);
 
               sub.innerHTML = `
                 <div class="voice-user-left">
                   <div class="voice-user-avatar" style="${avatarStyle}">${initialText}</div>
                   <span class="voice-user-name">${u.name}</span>
+                  ${roleBadge}
                 </div>
                 <div style="display:flex; align-items:center; gap:6px;">
-                  ${pingBadge}
+                  ${manageBtn}
                   ${liveBadge}
                 </div>
               `;
@@ -1195,8 +1251,19 @@
       if (localMicStream) return localMicStream;
       try {
         const deviceId = selectedMicId || document.getElementById('select-audio-input').value;
+        // Item 5: supressão de ruído estilo Krisp. Krisp em si é um SDK proprietário
+        // que não pode ser embutido de graça num app web; usamos aqui o que o navegador
+        // tem de mais forte em cancelamento de ruído/eco (inclui IA de supressão em
+        // hardware compatível no Chrome/Edge), que é o equivalente aberto mais próximo.
+        const noiseCleanConstraints = {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        };
         localMicStream = await navigator.mediaDevices.getUserMedia({
-          audio: deviceId ? { deviceId: { exact: deviceId } } : true
+          audio: deviceId
+            ? { deviceId: { exact: deviceId }, ...noiseCleanConstraints }
+            : noiseCleanConstraints
         });
         localMicStream.getAudioTracks().forEach(t => t.enabled = !isMuted && !isDeafened);
         setupSpeakingDetection(localMicStream, socket.id);
@@ -1351,6 +1418,85 @@
       addScreenTracksToPeer(pc);
     });
 
+    // ---------- Item 4: gerenciar cargo de um usuário ----------
+    let roleModalTarget = { username: '', socketId: '', role: 'guest' };
+
+    function openRoleModal(targetUsername, targetSocketId, targetRole) {
+      roleModalTarget = { username: targetUsername, socketId: targetSocketId, role: targetRole };
+      document.getElementById('role-modal-username').textContent = targetUsername;
+      document.getElementById('role-modal-current-role').textContent = `Cargo atual: ${ROLE_LABELS[targetRole] || targetRole}`;
+
+      const optionsWrap = document.getElementById('role-modal-options');
+      optionsWrap.innerHTML = '';
+
+      if (myRole === 'owner') {
+        ['guest', 'member', 'moderator'].forEach(r => {
+          const btn = document.createElement('button');
+          btn.className = 'role-option-btn' + (r === targetRole ? ' current' : '');
+          btn.textContent = r === targetRole ? `✓ ${ROLE_LABELS[r]} (atual)` : `Tornar ${ROLE_LABELS[r]}`;
+          if (r !== targetRole) btn.onclick = () => giveRole(targetUsername, r);
+          optionsWrap.appendChild(btn);
+        });
+      } else if (myRole === 'moderator' && targetRole === 'guest') {
+        const btn = document.createElement('button');
+        btn.className = 'role-option-btn';
+        btn.textContent = `Tornar ${ROLE_LABELS.member}`;
+        btn.onclick = () => giveRole(targetUsername, 'member');
+        optionsWrap.appendChild(btn);
+      }
+
+      if ((myRole === 'owner' || myRole === 'moderator') && connectedVoiceChannel) {
+        const pullBtn = document.createElement('button');
+        pullBtn.className = 'role-pull-btn';
+        pullBtn.textContent = '⬇ Puxar para esta sala';
+        pullBtn.onclick = () => pullUserHere(targetSocketId);
+        optionsWrap.appendChild(pullBtn);
+      }
+
+      openModal('role-modal');
+    }
+
+    function giveRole(targetUsername, newRole) {
+      socket.emit('assign-role', { targetUsername, newRole });
+      closeModal('role-modal');
+    }
+
+    function pullUserHere(targetSocketId) {
+      if (!connectedVoiceChannel) return;
+      socket.emit('pull-user-to-room', { targetSocketId, channelId: connectedVoiceChannel });
+      closeModal('role-modal');
+    }
+
+    socket.on('your-role', (data) => {
+      const wasGuest = myRole === 'guest';
+      myRole = data.role;
+      applyRolePermissionsToUI();
+      if (myRole !== 'guest' && wasGuest) {
+        showToast(`Você agora é ${ROLE_LABELS[myRole] || myRole}! Já pode circular pelas salas.`);
+      }
+      renderChannels();
+      renderStageUsers();
+    });
+
+    socket.on('guest-locked', (data) => {
+      showToast(data.message);
+    });
+
+    socket.on('voice-room-redirect', (data) => {
+      const srv = servers.find(s => s.id === activeServerId);
+      const ch = srv ? srv.channels.find(c => c.id === data.channelId) : null;
+      connectedVoiceChannel = data.channelId;
+      document.getElementById('voice-status-channel-name').textContent = ch ? ch.name : data.channelId;
+      renderChannels();
+    });
+
+    socket.on('force-join-voice', (data) => {
+      const srv = servers.find(s => s.id === activeServerId);
+      const ch = (srv && srv.channels.find(c => c.id === data.channelId)) || { id: data.channelId, name: data.channelId };
+      showToast('Um Moderador/Owner te puxou para outra sala de voz.');
+      connectVoice(ch);
+    });
+
     function connectVoice(channel) {
       if (connectedVoiceChannel && connectedVoiceChannel !== channel.id) {
         socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
@@ -1435,14 +1581,15 @@
           }
         }
 
-        const ping = peerPings[u.socketId];
-        const pingBadge = (!isSelf && ping != null) ? `<span class="user-ping-badge">${ping} ms</span>` : '';
+        const roleBadge = roleBadgeHtml(u.role);
+        const manageBtn = roleManageBtnHtml(u, isSelf);
 
         card.innerHTML = `
           <div class="card-avatar" style="${avatarStyle}">${initialText}</div>
           <div class="card-name-pill">${u.name}</div>
+          ${roleBadge}
           ${liveBadge}
-          ${pingBadge}
+          ${manageBtn}
         `;
         stage.appendChild(card);
       });
@@ -1470,6 +1617,15 @@
       document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
     }
 
+    function showToast(message, duration = 6000) {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = 'toast-item';
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => el.remove(), duration);
+    }
+
     function toggleScreenShare() {
       if (!localStream) startScreenShare();
       else stopScreenShare();
@@ -1490,11 +1646,19 @@
           },
           // Pede ao navegador para priorizar o áudio do sistema/guia (Chrome).
           // Se o navegador não suportar essa opção, ele simplesmente ignora.
-          systemAudio: 'include'
+          systemAudio: 'include',
+          // Item 6: exclui o áudio da NOSSA própria aba (onde tocam as vozes dos outros
+          // na call) da captura de tela. Sem isso, ao compartilhar "Tela inteira"/"Este app"
+          // com áudio do sistema, o navegador reenvia pra todo mundo o áudio que ele mesmo
+          // está reproduzindo, criando o efeito de eco/retorno.
+          selfBrowserSurface: 'exclude',
+          surfaceSwitching: 'include'
         });
 
         if (localStream.getAudioTracks().length === 0) {
-          console.warn('Nenhuma faixa de áudio capturada. Ao compartilhar a tela, marque a opção "Compartilhar áudio" na janela do navegador.');
+          const warnMsg = 'Essa fonte não está enviando áudio. Janelas/apps individuais geralmente não suportam captura de áudio no navegador — escolha "Guia do Chrome" ou "Tela inteira" e marque "Compartilhar áudio da guia/sistema" para transmitir com som.';
+          console.warn(warnMsg);
+          showToast(warnMsg);
         }
         
         addScreenStream(username, localStream, socket.id);
@@ -1699,6 +1863,17 @@
       renderStageUsers();
     }
 
+    // Item 8: fecha só a NOSSA visualização da transmissão de alguém. A pessoa continua
+    // transmitindo normalmente pra quem mais estiver assistindo; se quisermos, dá pra
+    // clicar em "Assistir" de novo depois pra reabrir.
+    function closeWatchingStream(userKey, socketId) {
+      delete activeStreams[userKey];
+      if (socketId) watchedStreams[socketId] = false;
+      renderStreamsContainer();
+      renderChannels();
+      renderStageUsers();
+    }
+
     function removeScreenStream(user) {
       delete activeStreams[user];
       renderStreamsContainer();
@@ -1825,6 +2000,21 @@
 
         card.appendChild(video);
         card.appendChild(badge);
+
+        // Item 8: botão pra fechar a transmissão de um amigo (só sua visualização;
+        // quem está transmitindo continua ao vivo pra quem ainda estiver assistindo).
+        if (!isOwnPreview) {
+          const closeBtn = document.createElement('button');
+          closeBtn.className = 'stream-close-btn';
+          closeBtn.title = 'Fechar Transmissão';
+          closeBtn.innerHTML = `<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+          closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            closeWatchingStream(userKey, activeStreams[userKey] ? activeStreams[userKey].socketId : null);
+          };
+          card.appendChild(closeBtn);
+        }
+
         card.appendChild(fsBtn);
         if (volumeControl) card.appendChild(volumeControl);
         container.appendChild(card);
@@ -1835,6 +2025,11 @@
       e.preventDefault();
       const input = document.getElementById('input');
       if (!input.value.trim() || !activeChannel) return;
+
+      if (myRole === 'guest' && activeChannel !== WAITING_TEXT_ROOM) {
+        showToast('Você está como Guest e só pode conversar na Sala de Espera até ganhar um cargo.');
+        return;
+      }
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1895,6 +2090,7 @@
           <div class="chat-msg-body">
             <div class="chat-msg-header">
               <span class="chat-msg-author">${data.user}</span>
+              ${roleBadgeHtml(data.role)}
               <span class="chat-msg-time">${data.time || 'Agora'}</span>
             </div>
             <div class="chat-msg-text">${data.message}</div>
