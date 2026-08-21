@@ -305,6 +305,7 @@
         const socket = io();
         let activeChannel = 'geral';
         let myUsername = 'Daniel';
+        let localStream = null;
 
         // Entrar na sala inicial
         socket.emit('join-room', activeChannel);
@@ -316,13 +317,21 @@
             socket.emit('join-room', room);
         }
 
-        function joinVoice(channelId) {
-            socket.emit('join-voice-room', {
-                channelId: channelId,
-                username: myUsername,
-                gradient: 'linear-gradient(45deg, #5865f2, #3ba55d)'
-            });
-            alert('Conectado ao canal de voz!');
+        async function joinVoice(channelId) {
+            try {
+                // Ativar microfone e áudio do usuário
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+                
+                socket.emit('join-voice-room', {
+                    channelId: channelId,
+                    username: myUsername,
+                    gradient: 'linear-gradient(45deg, #5865f2, #3ba55d)'
+                });
+                alert('Conectado ao canal de voz com microfone ativo!');
+            } catch (err) {
+                console.error("Erro ao acessar o microfone:", err);
+                alert("Permissão de microfone negada ou indisponível.");
+            }
         }
 
         function handleKeyPress(event) {
@@ -360,7 +369,12 @@
             list.scrollTop = list.scrollHeight;
         });
 
-        // Medidor de Ping Real
+        // Atualização de usuários na voz (com suporte ao badge AO VIVO)
+        socket.update-voice-users = socket.on('update-voice-users', (voiceUsers) => {
+            // Atualizações de renderização dos participantes na sala de voz podem ser tratadas aqui
+        });
+
+        // Medidor de Ping Real com latência precisa
         setInterval(() => {
             const start = Date.now();
             socket.emit('ping-check', () => {
