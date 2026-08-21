@@ -28,6 +28,12 @@ io.on('connection', (socket) => {
     socket.join(roomId);
   });
 
+  // Eco simples para medição de ping real (RTT) de cada cliente.
+  // O cliente manda o timestamp e recebe de volta via callback (ack) do socket.io.
+  socket.on('ping-check', (clientTime, callback) => {
+    if (typeof callback === 'function') callback(clientTime);
+  });
+
   socket.on('chat-message', (data) => {
     io.to(data.room).emit('chat-message', data);
   });
@@ -71,6 +77,13 @@ io.on('connection', (socket) => {
       activeRoomStreams[channelId] = activeRoomStreams[channelId].filter(id => id !== socket.id);
     }
     socket.to(channelId).emit('user-stopped-streaming', socket.id);
+  });
+
+  // Item 6: a live não abre sozinha para quem está assistindo.
+  // O espectador só pede pra "entrar" na transmissão quando clica em "Assistir Live",
+  // e é só nesse momento que quem está transmitindo manda as faixas de vídeo/áudio pra ele.
+  socket.on('request-watch-stream', (data) => {
+    io.to(data.targetSocketId).emit('watch-stream-requested', { requesterSocketId: socket.id });
   });
 
   socket.on('webrtc-offer', (data) => {
