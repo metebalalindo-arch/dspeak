@@ -70,3 +70,6 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Servidor DSpeak online na porta ${PORT}`));
+socket.on('request-stream-connection', (data) => {
+    socket.to(data.targetChannel).emit('request-stream-connection', { senderSocketId: socket.id });
+  });
