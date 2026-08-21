@@ -192,6 +192,7 @@
     .voice-main-content { flex: 1; display: flex; flex-direction: column; position: relative; height: 100%; overflow: hidden; gap: 12px; }
 
     .stage-layout { flex: 1; display: flex; flex-direction: column; gap: 12px; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
+    .video-stage-wrapper { flex: 1; min-height: 0; position: relative; display: flex; }
 
     #streams-container { display: none; flex: 1; min-height: 0; gap: 12px; overflow-y: auto; align-content: center; justify-content: center; flex-wrap: wrap; width: 100%; }
     
@@ -234,6 +235,9 @@
     .user-card { width: 150px; height: 104px; border-radius: 14px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.6); gap: 6px; }
     .card-avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 17px; background-size: cover; background-position: center; border: 2px solid #ff5500; }
     .card-name-pill { font-size: 13px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; text-align: center; }
+    .card-name-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .voice-status-icons { display: flex; align-items: center; flex-shrink: 0; }
+    .voice-status-icon { width: 13px; height: 13px; stroke: #ff3b3b; stroke-width: 2.3; fill: none; flex-shrink: 0; }
 
     .stage-controls-dock { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(19, 21, 27, 0.92); backdrop-filter: blur(12px); border-radius: 18px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; z-index: 300; border: 1px solid rgba(255, 85, 0, 0.35); box-shadow: 0 12px 35px rgba(0,0,0,0.9), 0 0 20px rgba(255,85,0,0.25); opacity: 1; transition: opacity 0.25s ease, transform 0.25s ease; }
     .stage-controls-dock.dock-hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
@@ -599,26 +603,29 @@
       <div id="voice-room-view">
         <div class="voice-main-content">
           <div class="stage-layout">
-            <div id="streams-container"></div>
+            <div class="video-stage-wrapper" id="video-stage-wrapper">
+              <div id="streams-container"></div>
+
+              <div class="stage-controls-dock">
+                <button class="stage-btn" id="stage-mic-btn" onclick="toggleMute()" title="Mutar Microfone">
+                  <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                </button>
+                
+                <button class="stage-btn" id="stage-deafen-btn" onclick="toggleDeafen()" title="Ensurdecer Áudio">
+                  <svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="2" y="15" width="5" height="6" rx="2"/><rect x="17" y="15" width="5" height="6" rx="2"/></svg>
+                </button>
+                
+                <button class="stage-btn" id="stage-share-btn" onclick="toggleScreenShare()" title="Transmitir Tela">
+                  <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                </button>
+
+                <button class="stage-btn" id="stage-quality-btn" onclick="openSettingsModal('stream')" title="Ajustar Qualidade da Transmissão" style="display: none;">
+                  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                </button>
+              </div>
+            </div>
+
             <div class="connected-users-stage" id="connected-users-stage"></div>
-          </div>
-
-          <div class="stage-controls-dock">
-            <button class="stage-btn" id="stage-mic-btn" onclick="toggleMute()" title="Mutar Microfone">
-              <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
-            </button>
-            
-            <button class="stage-btn" id="stage-deafen-btn" onclick="toggleDeafen()" title="Ensurdecer Áudio">
-              <svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="2" y="15" width="5" height="6" rx="2"/><rect x="17" y="15" width="5" height="6" rx="2"/></svg>
-            </button>
-            
-            <button class="stage-btn" id="stage-share-btn" onclick="toggleScreenShare()" title="Transmitir Tela">
-              <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            </button>
-
-            <button class="stage-btn" id="stage-quality-btn" onclick="openSettingsModal('stream')" title="Ajustar Qualidade da Transmissão" style="display: none;">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-            </button>
           </div>
         </div>
       </div>
@@ -1296,6 +1303,7 @@
                 <div class="voice-user-left">
                   <div class="voice-user-avatar" style="${avatarStyle}">${initialText}</div>
                   <span class="voice-user-name">${u.name}</span>
+                  ${voiceStatusIconsHtml(u, isSelf)}
                 </div>
                 <div style="display:flex; align-items:center; gap:6px;">
                   ${liveBadge}
@@ -1539,6 +1547,20 @@
       renderStreamsContainer();
     }
 
+    // Ícones de mutado/ensurdecido: usa o estado local pra mim mesmo (feedback na hora)
+    // e o que veio do servidor pros outros. Ensurdecido tem prioridade visual, já que
+    // sempre implica estar mutado também.
+    function voiceStatusIconsHtml(u, isSelf) {
+      const muted = isSelf ? isMuted : !!u.muted;
+      const deafened = isSelf ? isDeafened : !!u.deafened;
+      if (!muted && !deafened) return '';
+
+      if (deafened) {
+        return `<span class="voice-status-icons"><svg class="voice-status-icon" viewBox="0 0 24 24" title="Ensurdecido"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="2" y="15" width="5" height="6" rx="2"/><rect x="17" y="15" width="5" height="6" rx="2"/><line x1="3" y1="2" x2="21" y2="20"/></svg></span>`;
+      }
+      return `<span class="voice-status-icons"><svg class="voice-status-icon" viewBox="0 0 24 24" title="Mutado"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="3" y1="2" x2="21" y2="20"/></svg></span>`;
+    }
+
     function renderStageUsers() {
       const stage = document.getElementById('connected-users-stage');
       stage.innerHTML = '';
@@ -1570,7 +1592,10 @@
 
         card.innerHTML = `
           <div class="card-avatar" style="${avatarStyle}">${initialText}</div>
-          <div class="card-name-pill">${u.name}</div>
+          <div class="card-name-row">
+            <div class="card-name-pill">${u.name}</div>
+            ${voiceStatusIconsHtml(u, isSelf)}
+          </div>
           ${liveBadge}
         `;
         stage.appendChild(card);
@@ -1583,6 +1608,7 @@
       playSound(isMuted ? 'mute' : 'unmute');
       document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
+      broadcastVoiceStatus();
     }
 
     function toggleDeafen() {
@@ -1598,6 +1624,15 @@
       document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('stage-deafen-btn').classList.toggle('active-off', isDeafened);
       document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
+      broadcastVoiceStatus();
+    }
+
+    // Avisa todo mundo (via servidor) se estamos mutados/ensurdecidos, pra aparecer
+    // o iconezinho certo no nosso avatar na tela dos outros também.
+    function broadcastVoiceStatus() {
+      if (connectedVoiceChannel) {
+        socket.emit('update-voice-status', { muted: isMuted, deafened: isDeafened });
+      }
     }
 
     function showToast(message, duration = 6000) {
