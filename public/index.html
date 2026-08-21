@@ -1093,17 +1093,14 @@
 
         document.getElementById('stage-quality-btn').style.display = 'flex';
 
-        // Conecta e envia oferta para todos os usuários na sala de voz
+        // Garante a conexão com todos da sala e adiciona as faixas de vídeo/áudio.
+        // A oferta é criada automaticamente pelo onnegotiationneeded de cada pc
+        // (evita duas ofertas colidindo quando os dois lados estão transmitindo).
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
         usersInChannel.forEach(u => {
           if (u.socketId !== socket.id) {
             const pc = createPeerConnection(u.socketId);
-            if (!pc.getSenders().length) {
-              localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-            }
-            pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-              socket.emit('webrtc-offer', { targetSocketId: u.socketId, offer: pc.localDescription });
-            }).catch(err => console.error("Erro no offer:", err));
+            addLocalTracksToPeer(pc);
           }
         });
 
@@ -1112,16 +1109,16 @@
     }
 
     function stopScreenShare() {
+      // Remove só as NOSSAS faixas de cada conexão (renegocia automaticamente via
+      // onnegotiationneeded). Não fecha a conexão: ela pode ainda estar sendo usada
+      // para RECEBER a tela de outra pessoa que continua transmitindo.
+      Object.values(peerConnections).forEach(pc => removeLocalTracksFromPeer(pc));
+
       if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
       removeScreenStream(username);
       if (connectedVoiceChannel) {
         socket.emit('stop-streaming', connectedVoiceChannel);
       }
-
-      Object.keys(peerConnections).forEach(socketId => {
-        peerConnections[socketId].close();
-        delete peerConnections[socketId];
-      });
 
       const shareBtn = document.getElementById('stage-share-btn');
       shareBtn.classList.remove('active-share');
@@ -1130,15 +1127,49 @@
       document.getElementById('stage-quality-btn').style.display = 'none';
     }
 
+    function addLocalTracksToPeer(pc) {
+      if (!localStream) return;
+      const existingKinds = pc.getSenders().map(s => s.track && s.track.kind).filter(Boolean);
+      localStream.getTracks().forEach(track => {
+        if (!existingKinds.includes(track.kind)) {
+          pc.addTrack(track, localStream);
+        }
+      });
+    }
+
+    function removeLocalTracksFromPeer(pc) {
+      if (!localStream) return;
+      const localTrackIds = localStream.getTracks().map(t => t.id);
+      pc.getSenders().forEach(sender => {
+        if (sender.track && localTrackIds.includes(sender.track.id)) {
+          pc.removeTrack(sender);
+        }
+      });
+    }
+
     function createPeerConnection(targetSocketId) {
       if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
 
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnections[targetSocketId] = pc;
 
-      if (localStream && !pc.getSenders().length) {
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      }
+      // Papel fixo e igual nos dois lados (comparando os IDs de socket) para resolver
+      // colisões de oferta: o lado "educado" recua (rollback) quando as ofertas colidem,
+      // o outro lado ignora a oferta recebida e mantém a sua.
+      pc.polite = socket.id < targetSocketId;
+      pc.makingOffer = false;
+
+      pc.onnegotiationneeded = async () => {
+        try {
+          pc.makingOffer = true;
+          await pc.setLocalDescription();
+          socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
+        } catch (err) {
+          console.error("Erro ao negociar (onnegotiationneeded):", err);
+        } finally {
+          pc.makingOffer = false;
+        }
+      };
 
       pc.ontrack = (event) => {
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
@@ -1153,12 +1184,19 @@
         }
       };
 
+      addLocalTracksToPeer(pc);
+
       return pc;
     }
 
     socket.on('webrtc-offer', async (data) => {
       const pc = createPeerConnection(data.senderSocketId);
-      if (pc.signalingState !== "stable") {
+
+      const offerCollision = pc.makingOffer || pc.signalingState !== "stable";
+      const ignoreOffer = !pc.polite && offerCollision;
+      if (ignoreOffer) return;
+
+      if (offerCollision) {
         await Promise.all([
           pc.setLocalDescription({ type: "rollback" }),
           pc.setRemoteDescription(new RTCSessionDescription(data.offer))
@@ -1166,14 +1204,12 @@
       } else {
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
       }
-      
-      if (localStream && !pc.getSenders().length) {
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      }
+
+      addLocalTracksToPeer(pc);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer });
+      socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer: pc.localDescription });
     });
 
     socket.on('webrtc-answer', async (data) => {
@@ -1194,17 +1230,13 @@
       }
     });
 
-    // Sincronização automática ajustada para que ambos criem a oferta independentemente do ID
+    // Só precisamos garantir que a conexão exista e tenha nossas faixas.
+    // A oferta é disparada sozinha pelo onnegotiationneeded do createPeerConnection/addLocalTracksToPeer.
     socket.on('sync-active-streams', (streamingSocketIds) => {
       streamingSocketIds.forEach(targetSocketId => {
         if (targetSocketId !== socket.id) {
           const pc = createPeerConnection(targetSocketId);
-          if (localStream && !pc.getSenders().length) {
-            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-          }
-          pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-            socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
-          }).catch(err => console.error("Erro sync offer:", err));
+          addLocalTracksToPeer(pc);
         }
       });
     });
@@ -1212,20 +1244,13 @@
     socket.on('user-started-streaming', (targetSocketId) => {
       if (targetSocketId !== socket.id) {
         const pc = createPeerConnection(targetSocketId);
-        if (localStream && !pc.getSenders().length) {
-          localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-        }
-        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-          socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
-        }).catch(err => console.error("Erro user-started-streaming offer:", err));
+        addLocalTracksToPeer(pc);
       }
     });
 
     socket.on('user-stopped-streaming', (targetSocketId) => {
-      if (peerConnections[targetSocketId]) {
-        peerConnections[targetSocketId].close();
-        delete peerConnections[targetSocketId];
-      }
+      // Não fecha a conexão aqui: se nós ainda estivermos transmitindo para essa
+      // pessoa, a ligação (pc) precisa continuar aberta para o nosso lado funcionar.
       const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
       const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
       if (targetUser) {
@@ -1318,7 +1343,17 @@
 
     let lastRenderedDate = "";
 
-    socket.on('update-voice-users', (data) => { 
+    socket.on('update-voice-users', (data) => {
+      // Fecha e limpa conexões de quem já não está mais no nosso canal de voz atual.
+      const previousIds = (voiceChannelUsers[connectedVoiceChannel] || []).map(u => u.socketId);
+      const newIds = (data[connectedVoiceChannel] || []).map(u => u.socketId);
+      previousIds.forEach(socketId => {
+        if (!newIds.includes(socketId) && peerConnections[socketId]) {
+          peerConnections[socketId].close();
+          delete peerConnections[socketId];
+        }
+      });
+
       voiceChannelUsers = data; 
       renderChannels(); 
       renderStageUsers();
