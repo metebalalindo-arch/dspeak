@@ -134,6 +134,16 @@
     .user-handle { font-size: 11px; color: #8a8f9d; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 
     .status-selector-popover { display: none; position: absolute; bottom: 65px; left: 12px; background: #13151b; border: 1px solid rgba(255,85,0,0.3); border-radius: 8px; padding: 6px; z-index: 1000; box-shadow: 0 10px 25px rgba(0,0,0,0.8); width: 180px; }
+
+    .user-volume-btn { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: #b5bac1; width: 20px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .user-volume-btn:hover { background: rgba(255, 85, 0, 0.25); color: #fff; }
+    .user-volume-popover { display: none; position: fixed; background: #13151b; border: 1px solid rgba(255,85,0,0.35); border-radius: 10px; padding: 12px 14px; z-index: 2000; box-shadow: 0 12px 30px rgba(0,0,0,0.85); width: 220px; }
+    .uvp-label { font-size: 12px; color: #cfd2d8; margin-bottom: 8px; font-weight: 600; }
+    .uvp-slider-row { display: flex; align-items: center; gap: 8px; }
+    .uvp-icon { font-size: 14px; flex-shrink: 0; }
+    .uvp-percent { font-size: 11px; color: #8a8f9d; width: 34px; text-align: right; flex-shrink: 0; }
+    #uvp-slider { flex: 1; accent-color: #ff5500; }
+    .uvp-hint { font-size: 10px; color: #6b6f7a; margin-top: 8px; line-height: 1.4; }
     .status-opt-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #b5bac1; cursor: pointer; }
     .status-opt-item:hover { background: #ff5500; color: #fff; }
 
@@ -406,6 +416,16 @@
         <div class="status-opt-item" onclick="setUserStatus('dnd', '#ff3333')">Ocupado</div>
       </div>
     </div>
+  </div>
+
+  <div class="user-volume-popover" id="user-volume-popover" onclick="event.stopPropagation()">
+    <div class="uvp-label">Volume de <span id="uvp-username">—</span></div>
+    <div class="uvp-slider-row">
+      <span class="uvp-icon">🔉</span>
+      <input type="range" id="uvp-slider" min="0" max="100" value="100" oninput="onUserVolumeSliderInput()">
+      <span class="uvp-percent" id="uvp-percent">100%</span>
+    </div>
+    <div class="uvp-hint">Só muda o que <strong>você</strong> ouve — ninguém mais é afetado.</div>
   </div>
 
   <div class="modal-overlay" id="settings-center-modal">
@@ -1432,6 +1452,7 @@
     document.addEventListener('click', () => {
       document.getElementById('server-menu').style.display = 'none';
       document.getElementById('status-selector-popover').style.display = 'none';
+      document.getElementById('user-volume-popover').style.display = 'none';
     });
 
     function getUserAvatarGradient(name) {
@@ -1572,6 +1593,7 @@
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
                   ${voiceStatusIconsHtml(u, isSelf)}
+                  ${voiceVolumeBtnHtml(u, isSelf)}
                   ${roleManageBtnHtml(u, isSelf)}
                   ${liveBadge}
                 </div>
@@ -1726,6 +1748,7 @@
       }
       el.srcObject = stream;
       el.muted = isDeafened;
+      el.volume = userVolumes[targetSocketId] !== undefined ? userVolumes[targetSocketId] : 1;
       if (el.setSinkId && selectedSpeakerId) el.setSinkId(selectedSpeakerId).catch(() => {});
       setupSpeakingDetection(stream, targetSocketId);
     }
@@ -2066,6 +2089,47 @@
       return `<span class="voice-status-icons"><svg class="voice-status-icon" viewBox="0 0 24 24" title="Mutado"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="3" y1="2" x2="21" y2="20"/></svg></span>`;
     }
 
+    // ---------- Volume individual por usuário (só afeta o que EU ouço) ----------
+    // Guardado só na memória desta sessão (socketId -> 0 a 1). Não é enviado pro
+    // servidor nem pra mais ninguém — cada pessoa ajusta o volume só do seu lado.
+    let userVolumes = {};
+    let userVolumePopoverTarget = null;
+
+    function voiceVolumeBtnHtml(u, isSelf) {
+      if (isSelf) return '';
+      const safeName = String(u.name).replace(/'/g, "\\'");
+      return `<button class="user-volume-btn" title="Ajustar volume" onclick="event.stopPropagation(); openUserVolumePopover(event, '${u.socketId}', '${safeName}')">🔊</button>`;
+    }
+
+    function openUserVolumePopover(e, socketId, name) {
+      userVolumePopoverTarget = socketId;
+      const pop = document.getElementById('user-volume-popover');
+      const currentVol = userVolumes[socketId] !== undefined ? userVolumes[socketId] : 1;
+
+      document.getElementById('uvp-username').textContent = name;
+      document.getElementById('uvp-slider').value = Math.round(currentVol * 100);
+      document.getElementById('uvp-percent').textContent = `${Math.round(currentVol * 100)}%`;
+
+      const rect = e.currentTarget.getBoundingClientRect();
+      pop.style.display = 'block';
+      // Posiciona perto do botão clicado, sem deixar vazar pra fora da tela.
+      const popWidth = 220;
+      let left = rect.left;
+      if (left + popWidth > window.innerWidth - 10) left = window.innerWidth - popWidth - 10;
+      pop.style.left = `${Math.max(10, left)}px`;
+      pop.style.top = `${rect.bottom + 8}px`;
+    }
+
+    function onUserVolumeSliderInput() {
+      if (!userVolumePopoverTarget) return;
+      const pct = parseInt(document.getElementById('uvp-slider').value, 10);
+      document.getElementById('uvp-percent').textContent = `${pct}%`;
+      const vol = pct / 100;
+      userVolumes[userVolumePopoverTarget] = vol;
+      const el = peerAudioEls[userVolumePopoverTarget];
+      if (el) el.volume = vol;
+    }
+
     function renderStageUsers() {
       const stage = document.getElementById('connected-users-stage');
       stage.innerHTML = '';
@@ -2100,6 +2164,7 @@
           <div class="card-name-row">
             <div class="card-name-pill">${u.name}</div>
             ${voiceStatusIconsHtml(u, isSelf)}
+            ${voiceVolumeBtnHtml(u, isSelf)}
             ${roleBadgeHtml(u.role)}
           </div>
           ${liveBadge}
