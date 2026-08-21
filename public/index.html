@@ -4,65 +4,59 @@
   <meta charset="UTF-8">
   <title>DSpeak — Nexus Interface</title>
   <style>
-    /* Estilos preservados (Ocultos para brevidade, mantenha o seu CSS atual aqui) */
-    body { background: #0c0d10; color: #cfd2d8; font-family: sans-serif; display: flex; height: 100vh; overflow: hidden; }
-    #auth-overlay { position: fixed; inset: 0; background: #0c0d10; z-index: 5000; display: flex; align-items: center; justify-content: center; }
-    .auth-card { background: #13151b; width: 400px; padding: 30px; border-radius: 15px; border: 1px solid #ff5500; }
-    /* ... mantenha todo o seu CSS original aqui ... */
-    .live-badge { background: #ed4245; color: white; font-size: 9px; padding: 2px 5px; border-radius: 4px; animation: pulse 1.5s infinite; }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+    /* Mantenha seus estilos originais aqui... */
+    .screen-stream-card { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+    .screen-stream-card video { width: 100%; height: 100%; }
+    .live-badge { background: #ed4245; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
   </style>
 </head>
 <body>
-  <div id="auth-overlay">
-    <div class="auth-card">
-      <input type="text" id="nickname-input" placeholder="Seu apelido" />
-      <button onclick="connectToServer()">Entrar</button>
-    </div>
-  </div>
-
-  <div id="main">
-    <div id="voice-room-view">
-        <div id="streams-container" style="display:flex; flex-wrap:wrap; gap:10px;"></div>
-        <div class="stage-controls-dock">
-            <button onclick="toggleScreenShare()">📡 Transmitir Tela</button>
-        </div>
-    </div>
-  </div>
+  <!-- (Mantenha sua estrutura HTML de sidebar e botões igual) -->
+  <div id="streams-container"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     let localStream = null;
-    let peerConnections = {};
+    let peerConnections = {}; // Armazena conexões P2P
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    async function startScreenShare() {
-      try {
-        localStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        socket.emit('update-streaming-status', { channelId: connectedVoiceChannel, isStreaming: true });
-        
-        // Avisar outros na sala (logica simplificada para criar conexões)
-        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
-        usersInChannel.forEach(u => {
-            if (u.socketId !== socket.id) createPeerConnection(u.socketId, true);
-        });
-      } catch (err) { console.error(err); }
+    // Função de Transmissão (Screen Share)
+    async function toggleScreenShare() {
+      if (!localStream) {
+        try {
+          localStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+          socket.emit('update-streaming-status', { channelId: connectedVoiceChannel, isStreaming: true });
+          
+          // Adiciona o vídeo na própria tela
+          renderStream(username, localStream);
+
+          // Avisa todos na sala que você começou a transmitir
+          socket.emit('request-stream-connection', { targetChannel: connectedVoiceChannel });
+        } catch (err) { console.error("Erro na transmissão:", err); }
+      } else {
+        stopScreenShare();
+      }
     }
+
+    // Ouvinte para quando alguém novo entra na sala, conectar a transmissão
+    socket.on('request-stream-connection', (data) => {
+        if(localStream) {
+            createPeerConnection(data.senderSocketId, true);
+        }
+    });
 
     function createPeerConnection(targetSocketId, isInitiator) {
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnections[targetSocketId] = pc;
 
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      // Adiciona o seu stream local para o peer
+      if (localStream) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
 
       pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-candidate', { targetSocketId, candidate: e.candidate }); };
-      pc.ontrack = e => { 
-          const video = document.createElement('video');
-          video.srcObject = e.streams[0];
-          video.autoplay = true;
-          document.getElementById('streams-container').appendChild(video);
-      };
+      pc.ontrack = e => { renderStream(targetSocketId, e.streams[0]); };
 
       if (isInitiator) {
         pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription }));
@@ -70,6 +64,20 @@
       return pc;
     }
 
+    function renderStream(userId, stream) {
+      const container = document.getElementById('streams-container');
+      let card = document.getElementById(`stream-${userId}`);
+      if (!card) {
+        card = document.createElement('div');
+        card.id = `stream-${userId}`;
+        card.className = 'screen-stream-card';
+        card.innerHTML = `<video autoplay playsinline ${userId === username ? 'muted' : ''}></video>`;
+        container.appendChild(card);
+      }
+      card.querySelector('video').srcObject = stream;
+    }
+
+    // Sinalização WebRTC (Repassar ofertas/respostas)
     socket.on('webrtc-offer', async (data) => {
         const pc = createPeerConnection(data.senderSocketId, false);
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -80,6 +88,12 @@
 
     socket.on('webrtc-answer', async (d) => await peerConnections[d.senderSocketId].setRemoteDescription(new RTCSessionDescription(d.answer)));
     socket.on('webrtc-candidate', (d) => peerConnections[d.senderSocketId].addIceCandidate(new RTCIceCandidate(d.candidate)));
+
+    function stopScreenShare() {
+      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+      socket.emit('update-streaming-status', { channelId: connectedVoiceChannel, isStreaming: false });
+      // Limpar peers...
+    }
   </script>
 </body>
 </html>
