@@ -22,6 +22,28 @@ io.on('connection', (socket) => {
   socket.on('register-user', (data) => {
     socket.username = data.username;
     socket.avatarUrl = data.avatarUrl;
+
+    // Manda pro cliente que acabou de entrar o retrato atual de quem já está
+    // conectado nas salas de voz. Sem isso, ele só ficava sabendo quando alguém
+    // MAIS entrava ou saía depois — por isso a lista ficava vazia até você mesmo
+    // entrar numa sala (o que aí sim disparava uma atualização).
+    socket.emit('update-voice-users', voiceUsers);
+  });
+
+  // Atualiza apelido/avatar em tempo real pra todo mundo, sem precisar de F5.
+  // Sem isso, só o rodapé de quem mudou o perfil atualizava (feito localmente);
+  // a lista de voz e os cards do palco ficavam com os dados antigos até reconectar.
+  socket.on('change-profile', (data) => {
+    const { newName, avatarUrl } = data;
+    socket.username = newName;
+    socket.avatarUrl = avatarUrl;
+
+    Object.keys(voiceUsers).forEach(channelId => {
+      voiceUsers[channelId] = voiceUsers[channelId].map(u =>
+        u.socketId === socket.id ? { ...u, name: newName, avatarUrl } : u
+      );
+    });
+    io.emit('update-voice-users', voiceUsers);
   });
 
   socket.on('join-room', (roomId) => {
