@@ -1917,6 +1917,11 @@
       if (myRole !== 'guest' && wasGuest) {
         showToast(`Você agora é ${ROLE_LABELS[myRole] || myRole}! Já pode circular pelas salas.`);
       }
+      if (connectedVoiceChannel) {
+        const canShareScreen = myRole !== 'guest' && connectedVoiceChannel !== WAITING_VOICE_ROOM;
+        document.getElementById('share-btn').disabled = !canShareScreen;
+        document.getElementById('stage-share-btn').disabled = !canShareScreen;
+      }
       renderChannels();
       renderStageUsers();
     });
@@ -1961,7 +1966,13 @@
       document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('deafen-btn').disabled = false;
-      document.getElementById('share-btn').disabled = false;
+
+      // Guests e a Sala de Espera não podem transmitir tela.
+      const canShareScreen = myRole !== 'guest' && channel.id !== WAITING_VOICE_ROOM;
+      document.getElementById('share-btn').disabled = !canShareScreen;
+      document.getElementById('stage-share-btn').disabled = !canShareScreen;
+      document.getElementById('stage-share-btn').title = canShareScreen ? 'Transmitir Tela' : 'Transmissão de tela não disponível aqui';
+
       document.getElementById('voice-connection-panel').style.display = 'flex';
       document.getElementById('voice-status-channel-name').textContent = channel.name;
 
@@ -2139,7 +2150,17 @@
     }
 
     function toggleScreenShare() {
-      if (!localStream) startScreenShare();
+      if (!localStream) {
+        if (myRole === 'guest') {
+          showToast('Guests não podem transmitir tela. Peça pra um Moderador ou Owner te dar um cargo primeiro.');
+          return;
+        }
+        if (connectedVoiceChannel === WAITING_VOICE_ROOM) {
+          showToast('Não dá pra transmitir tela na Sala de Espera.');
+          return;
+        }
+        startScreenShare();
+      }
       else stopScreenShare();
     }
 
