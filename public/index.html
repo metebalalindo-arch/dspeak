@@ -660,6 +660,50 @@
     let micGainNode = null;
     let currentMicVolume = 0.8;
 
+    // ---------- Efeitos sonoros da sala (entrar/sair, mutar/desmutar, transmissão) ----------
+    // Gerados na hora com osciladores (Web Audio API), sem nenhum arquivo de áudio externo.
+    let uiSoundsEnabled = true;
+    let uiAudioCtx = null;
+
+    function getUiAudioCtx() {
+      if (!uiAudioCtx) uiAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (uiAudioCtx.state === 'suspended') uiAudioCtx.resume().catch(() => {});
+      return uiAudioCtx;
+    }
+
+    function playBeep(freq, startTime, duration, type, gainPeak) {
+      try {
+        const ctx = getUiAudioCtx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.value = freq;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        const t0 = ctx.currentTime + startTime;
+        gain.gain.setValueAtTime(0, t0);
+        gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+        osc.start(t0);
+        osc.stop(t0 + duration + 0.03);
+      } catch (e) { /* ignora se o navegador bloquear áudio antes de qualquer interação */ }
+    }
+
+    const UI_SOUNDS = {
+      join: () => { playBeep(520, 0, 0.09, 'sine', 0.14); playBeep(740, 0.08, 0.12, 'sine', 0.14); },
+      leave: () => { playBeep(620, 0, 0.09, 'sine', 0.14); playBeep(400, 0.08, 0.14, 'sine', 0.14); },
+      mute: () => { playBeep(300, 0, 0.09, 'triangle', 0.13); },
+      unmute: () => { playBeep(520, 0, 0.09, 'triangle', 0.13); },
+      streamStart: () => { playBeep(660, 0, 0.06, 'square', 0.09); playBeep(920, 0.07, 0.1, 'square', 0.09); },
+      streamStop: () => { playBeep(520, 0, 0.06, 'square', 0.09); playBeep(320, 0.07, 0.12, 'square', 0.09); }
+    };
+
+    function playSound(name) {
+      if (!uiSoundsEnabled) return;
+      const fn = UI_SOUNDS[name];
+      if (fn) fn();
+    }
+
     let servers = [{
       id: 'dspeak',
       name: 'DSPEAK SERVER',
@@ -706,6 +750,8 @@
     const AVATAR_OUTPUT_SIZE = 256;
     let cropState = { scale: 1, baseScale: 1, offsetX: 0, offsetY: 0, dragging: false, lastX: 0, lastY: 0, naturalW: 0, naturalH: 0 };
 
+    document.addEventListener('click', getUiAudioCtx, { once: true });
+
     window.addEventListener('DOMContentLoaded', () => {
       const savedUser = localStorage.getItem('dspeak_username');
       const savedAvatar = localStorage.getItem('dspeak_avatar');
@@ -726,6 +772,7 @@
       username = inputName;
       localStorage.setItem('dspeak_username', username);
       document.getElementById('auth-overlay').style.display = 'none';
+      getUiAudioCtx(); // destrava o áudio dos efeitos sonoros logo no primeiro clique
 
       initAppSession();
     }
@@ -1533,6 +1580,7 @@
     function toggleMute() {
       isMuted = !isMuted;
       applyMicState();
+      playSound(isMuted ? 'mute' : 'unmute');
       document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
     }
@@ -1775,6 +1823,7 @@
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
         const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
         liveStreamers[targetSocketId] = targetUser ? targetUser.name : "Amigo";
+        playSound('streamStart');
         renderChannels();
         renderStageUsers();
       }
@@ -1786,7 +1835,7 @@
       const streamerName = liveStreamers[targetSocketId];
       delete liveStreamers[targetSocketId];
       delete watchedStreams[targetSocketId];
-      if (streamerName) removeScreenStream(streamerName);
+      if (streamerName) { removeScreenStream(streamerName); playSound('streamStop'); }
       renderChannels();
       renderStageUsers();
     });
@@ -1988,6 +2037,15 @@
           delete peerConnections[socketId];
         }
       });
+
+      // Sons de entrar/sair: só pra quem chegou/saiu da sala em que EU estou conectado
+      // agora, e nunca pra mim mesmo (isso já tem feedback visual próprio).
+      if (connectedVoiceChannel) {
+        const someoneJoined = newIds.some(id => id !== socket.id && !previousIds.includes(id));
+        const someoneLeft = previousIds.some(id => id !== socket.id && !newIds.includes(id));
+        if (someoneJoined) playSound('join');
+        else if (someoneLeft) playSound('leave');
+      }
 
       voiceChannelUsers = data; 
       renderChannels(); 
