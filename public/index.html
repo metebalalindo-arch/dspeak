@@ -184,29 +184,39 @@
     
     .content-workspace { flex: 1; display: flex; flex-direction: row; overflow: hidden; height: calc(100vh - 52px); }
 
-    /* Palco Principal */
-    #voice-room-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #08090c; padding: 20px; gap: 16px; }
-    .voice-main-content { flex: 1; display: flex; flex-direction: column; position: relative; height: 100%; overflow: hidden; gap: 16px; }
+    /* Palco Principal Ajustado para Priorizar Transmissões */
+    #voice-room-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #08090c; padding: 16px; gap: 12px; }
+    .voice-main-content { flex: 1; display: flex; flex-direction: column; position: relative; height: 100%; overflow: hidden; gap: 12px; }
 
-    .stage-layout { flex: 1; display: flex; gap: 16px; width: 100%; height: 100%; min-height: 0; overflow: hidden; align-items: center; justify-content: center; }
+    .stage-layout { flex: 1; display: flex; flex-direction: column; gap: 12px; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
 
-    /* Área de Múltiplas Transmissões */
-    #streams-container { display: none; flex: 2; height: 100%; min-width: 0; gap: 12px; overflow-y: auto; align-content: center; justify-content: center; flex-wrap: wrap; }
-    .screen-stream-card { width: 100%; max-height: 100%; aspect-ratio: 16/9; background: #0c0d10; border-radius: 14px; border: 1px solid rgba(255, 85, 0, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.8); overflow: hidden; position: relative; display: flex; flex-direction: column; flex-shrink: 0; }
+    /* Área de Transmissões (Prioridade - Ocupa o topo e o centro) */
+    #streams-container { display: none; flex: 1; min-height: 0; gap: 12px; overflow-y: auto; align-content: center; justify-content: center; flex-wrap: wrap; width: 100%; }
+    
+    .screen-stream-card { 
+      flex: 1; min-width: 320px; max-height: 100%; aspect-ratio: 16/9; background: #0c0d10; border-radius: 14px; 
+      border: 1px solid rgba(255, 85, 0, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.8); overflow: hidden; position: relative; display: flex; flex-direction: column; flex-shrink: 0; 
+    }
+    .screen-stream-card.fullscreen-stage {
+      position: absolute !important; inset: 0 !important; width: 100% !important; height: 100% !important; max-height: 100% !important; z-index: 200; border-radius: 0; border: none; background: #000;
+    }
     .screen-stream-card video { width: 100%; height: 100%; object-fit: contain; }
     .screen-user-badge { position: absolute; top: 12px; left: 12px; background: rgba(12, 13, 16, 0.85); backdrop-filter: blur(8px); padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: bold; color: #fff; border: 1px solid rgba(255, 85, 0, 0.3); }
 
-    /* Grid de Voz */
-    .connected-users-stage { flex: 1; display: grid; grid-template-columns: repeat(2, 110px); grid-auto-rows: 110px; gap: 12px; align-content: center; justify-content: center; overflow-y: auto; padding-bottom: 50px; }
+    /* Botão de Fullscreen Localizado na Área do Palco */
+    .stream-fullscreen-btn {
+      position: absolute; top: 12px; right: 12px; background: rgba(12, 13, 16, 0.85); backdrop-filter: blur(8px); border: 1px solid rgba(255, 85, 0, 0.3);
+      color: #fff; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; z-index: 10;
+    }
+    .stream-fullscreen-btn:hover { background: #ff5500; }
+    .stream-fullscreen-btn svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 2; fill: none; }
 
-    .user-card { width: 110px; height: 110px; border-radius: 14px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 8px 20px rgba(0,0,0,0.6); transition: all 0.2s ease; gap: 6px; }
-    .card-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 15px; box-shadow: 0 0 12px rgba(255, 85, 0, 0.4); background-size: cover; background-position: center; border: 2px solid #ff5500; }
-    .card-name-pill { font-size: 11px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; text-align: center; }
+    /* Grid de Voz (Movida para baixo e compactada para dar espaço às lives) */
+    .connected-users-stage { display: flex; flex-wrap: wrap; gap: 8px; align-content: center; justify-content: center; overflow-y: auto; max-height: 130px; padding: 4px; flex-shrink: 0; }
 
-    .connected-users-stage.solo-mode { grid-template-columns: 220px; grid-auto-rows: 220px; }
-    .connected-users-stage.solo-mode .user-card { width: 220px; height: 220px; border-radius: 20px; gap: 14px; }
-    .connected-users-stage.solo-mode .card-avatar { width: 78px; height: 78px; font-size: 28px; }
-    .connected-users-stage.solo-mode .card-name-pill { font-size: 14px; max-width: 190px; }
+    .user-card { width: 90px; height: 90px; border-radius: 12px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.6); gap: 4px; }
+    .card-avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 13px; background-size: cover; background-position: center; border: 2px solid #ff5500; }
+    .card-name-pill { font-size: 10px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; text-align: center; }
 
     .stage-controls-dock { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(19, 21, 27, 0.92); backdrop-filter: blur(12px); border-radius: 18px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; z-index: 300; border: 1px solid rgba(255, 85, 0, 0.35); box-shadow: 0 12px 35px rgba(0,0,0,0.9), 0 0 20px rgba(255,85,0,0.25); }
     .stage-btn { width: 44px; height: 44px; border-radius: 12px; background: #1c202d; border: 1px solid rgba(255,255,255,0.06); color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
@@ -1004,7 +1014,6 @@
                 : `background: ${getUserAvatarGradient(u.name)};`;
               const initialText = u.avatarUrl ? '' : u.name.charAt(0).toUpperCase();
 
-              // Verificação de transmissão para exibir o selo AO VIVO na lista lateral
               const isLive = activeStreams.hasOwnProperty(u.name);
               const liveBadge = isLive ? '<span class="live-badge">AO VIVO</span>' : '';
 
@@ -1066,12 +1075,6 @@
 
       const users = voiceChannelUsers[connectedVoiceChannel] || [{ name: username, avatarUrl: userAvatarUrl }];
       
-      if (users.length === 1) {
-        stage.classList.add('solo-mode');
-      } else {
-        stage.classList.remove('solo-mode');
-      }
-
       users.forEach(u => {
         const card = document.createElement('div');
         card.className = 'user-card';
@@ -1081,7 +1084,6 @@
           : `background: ${getUserAvatarGradient(u.name)};`;
         const initialText = u.avatarUrl ? '' : u.name.charAt(0).toUpperCase();
 
-        // Verificação de transmissão para exibir o selo AO VIVO no palco
         const isLive = activeStreams.hasOwnProperty(u.name);
         const liveBadge = isLive ? '<span class="live-badge" style="margin-top: 1px;">AO VIVO</span>' : '';
 
@@ -1133,7 +1135,6 @@
 
         document.getElementById('stage-quality-btn').style.display = 'flex';
 
-        // Conecta com os outros usuários já presentes no canal de voz
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
         usersInChannel.forEach(u => {
           if (u.socketId !== socket.id) {
@@ -1161,7 +1162,6 @@
       document.getElementById('stage-quality-btn').style.display = 'none';
     }
 
-    // Gerenciador WebRTC Bidirecional
     function createPeerConnection(targetSocketId, isInitiator) {
       if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
 
@@ -1251,8 +1251,27 @@
         badge.className = 'screen-user-badge';
         badge.textContent = `Transmissão de ${userKey}`;
 
+        // Botão de expandir que ocupa toda a área do palco
+        const fsBtn = document.createElement('button');
+        fsBtn.className = 'stream-fullscreen-btn';
+        fsBtn.title = 'Expandir no Palco';
+        fsBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`;
+        
+        fsBtn.onclick = (e) => {
+          e.stopPropagation();
+          card.classList.toggle('fullscreen-stage');
+          if (card.classList.contains('fullscreen-stage')) {
+            fsBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 14h6v6m10-10h-6V4m0 6l7-7M4 20l7-7"/></svg>`;
+            fsBtn.title = 'Restaurar Tamanho';
+          } else {
+            fsBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`;
+            fsBtn.title = 'Expandir no Palco';
+          }
+        };
+
         card.appendChild(video);
         card.appendChild(badge);
+        card.appendChild(fsBtn);
         container.appendChild(card);
       });
     }
