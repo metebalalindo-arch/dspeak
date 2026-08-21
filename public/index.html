@@ -67,6 +67,9 @@
 
     .channel-right-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .channel-unread-badge { background: #ff3333; color: #fff; font-size: 9px; font-weight: 800; min-width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px; box-shadow: 0 0 8px rgba(255, 51, 51, 0.7); flex-shrink: 0; }
+    .channel-occupancy-badge { font-size: 10px; font-weight: 700; color: #8a8f9d; background: rgba(255,255,255,0.06); border-radius: 8px; padding: 1px 6px; flex-shrink: 0; }
+    .channel-occupancy-badge.full { color: #ff3333; background: rgba(255, 51, 51, 0.12); }
+    .channel-silent-badge { font-size: 11px; flex-shrink: 0; opacity: 0.8; }
     .channel-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0; }
     .channel:hover .channel-actions { opacity: 1; }
     .channel-action-btn { background: transparent; border: none; color: #8a8f9d; cursor: pointer; font-size: 12px; width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -563,10 +566,20 @@
       </div>
       <div class="modal-field">
         <label>Tipo de Canal</label>
-        <select id="new-channel-type">
+        <select id="new-channel-type" onchange="toggleVoiceOnlyChannelFields('new')">
           <option value="text">Texto (#)</option>
           <option value="voice">Voz (🔊)</option>
         </select>
+      </div>
+      <div id="new-channel-voice-fields" style="display: none;">
+        <div class="modal-field">
+          <label>Limite de Pessoas (0 = sem limite)</label>
+          <input type="number" id="new-channel-limit" min="0" placeholder="0" />
+        </div>
+        <div class="modal-field" style="flex-direction: row; align-items: center; gap: 8px;">
+          <input type="checkbox" id="new-channel-noaudio" style="width: auto;" />
+          <label style="margin: 0;">Sala silenciosa (tipo AFK) — ninguém fala aqui</label>
+        </div>
       </div>
       <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
         <button class="btn-cancel" onclick="closeModal('channel-modal')">Cancelar</button>
@@ -579,11 +592,21 @@
     <div class="modal" style="width: 340px;">
       <button class="modal-close-btn" onclick="closeModal('rename-channel-modal')">✕</button>
       <div class="modal-header-center">
-        <h2>Renomear Canal</h2>
+        <h2>Editar Canal</h2>
       </div>
       <div class="modal-field">
-        <label>Novo Nome</label>
+        <label>Nome</label>
         <input type="text" id="rename-channel-input" placeholder="novo-nome" onkeypress="if(event.key==='Enter') confirmRenameChannel()" />
+      </div>
+      <div id="rename-channel-voice-fields" style="display: none;">
+        <div class="modal-field">
+          <label>Limite de Pessoas (0 = sem limite)</label>
+          <input type="number" id="rename-channel-limit" min="0" placeholder="0" />
+        </div>
+        <div class="modal-field" style="flex-direction: row; align-items: center; gap: 8px;">
+          <input type="checkbox" id="rename-channel-noaudio" style="width: auto;" />
+          <label style="margin: 0;">Sala silenciosa (tipo AFK) — ninguém fala aqui</label>
+        </div>
       </div>
       <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
         <button class="btn-cancel" onclick="closeModal('rename-channel-modal')">Cancelar</button>
@@ -667,8 +690,18 @@
     let micGainNode = null;
     let currentMicVolume = 0.8;
 
+    // ---------- Supressor de ruído extra: noise gate no microfone real ----------
+    let micProcessingCtx = null;
+    let micSourceNode = null;
+    let micGateGainNode = null;
+    let micDestNode = null; // .stream daqui é o que de fato mandamos pros outros
+    let noiseGateRafId = null;
+    const NOISE_GATE_THRESHOLD = 12; // mesma escala do detector de "está falando" (0-255)
+
     // ---------- Efeitos sonoros da sala (entrar/sair, mutar/desmutar, transmissão) ----------
-    // Gerados na hora com osciladores (Web Audio API), sem nenhum arquivo de áudio externo.
+    // Gerados na hora com osciladores (Web Audio API), sem nenhum arquivo de áudio externo
+    // (não podemos reproduzir os sons originais do Discord — são propriedade deles). Aqui é
+    // uma sonoridade própria, num estilo parecido: notas tipo "sininho", suaves, sem bipe.
     let uiSoundsEnabled = true;
     let uiAudioCtx = null;
 
@@ -678,31 +711,76 @@
       return uiAudioCtx;
     }
 
-    function playBeep(freq, startTime, duration, type, gainPeak) {
+    // Uma "nota" com dois osciladores (fundamental + uma oitava acima, mais fraca) somados
+    // e passados por um filtro passa-baixa — dá um timbre mais quente/redondo, tipo sininho,
+    // em vez do bipe áspero de um oscilador só.
+    function playChimeNote(startTime, freq, duration, gainPeak) {
       try {
         const ctx = getUiAudioCtx();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = type || 'sine';
-        osc.frequency.value = freq;
-        osc.connect(gain);
-        gain.connect(ctx.destination);
         const t0 = ctx.currentTime + startTime;
-        gain.gain.setValueAtTime(0, t0);
-        gain.gain.linearRampToValueAtTime(gainPeak || 0.15, t0 + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
-        osc.start(t0);
-        osc.stop(t0 + duration + 0.03);
+
+        const filter = ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 3400;
+        filter.connect(ctx.destination);
+
+        const osc1 = ctx.createOscillator();
+        osc1.type = 'sine';
+        osc1.frequency.setValueAtTime(freq, t0);
+        const gain1 = ctx.createGain();
+        osc1.connect(gain1);
+        gain1.connect(filter);
+        gain1.gain.setValueAtTime(0, t0);
+        gain1.gain.linearRampToValueAtTime(gainPeak, t0 + 0.012);
+        gain1.gain.exponentialRampToValueAtTime(0.0007, t0 + duration);
+
+        const osc2 = ctx.createOscillator();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(freq * 2, t0);
+        const gain2 = ctx.createGain();
+        osc2.connect(gain2);
+        gain2.connect(filter);
+        gain2.gain.setValueAtTime(0, t0);
+        gain2.gain.linearRampToValueAtTime(gainPeak * 0.22, t0 + 0.012);
+        gain2.gain.exponentialRampToValueAtTime(0.0005, t0 + duration * 0.65);
+
+        osc1.start(t0); osc1.stop(t0 + duration + 0.05);
+        osc2.start(t0); osc2.stop(t0 + duration + 0.05);
       } catch (e) { /* ignora se o navegador bloquear áudio antes de qualquer interação */ }
     }
 
+    // Notas em sequência (uma "melodia" curta), cada uma com seu próprio horário/duração/volume.
+    function playChimeSequence(notes) {
+      notes.forEach(n => playChimeNote(n.at, n.freq, n.dur, n.gain));
+    }
+
     const UI_SOUNDS = {
-      join: () => { playBeep(520, 0, 0.09, 'sine', 0.14); playBeep(740, 0.08, 0.12, 'sine', 0.14); },
-      leave: () => { playBeep(620, 0, 0.09, 'sine', 0.14); playBeep(400, 0.08, 0.14, 'sine', 0.14); },
-      mute: () => { playBeep(300, 0, 0.09, 'triangle', 0.13); },
-      unmute: () => { playBeep(520, 0, 0.09, 'triangle', 0.13); },
-      streamStart: () => { playBeep(660, 0, 0.06, 'square', 0.09); playBeep(920, 0.07, 0.1, 'square', 0.09); },
-      streamStop: () => { playBeep(520, 0, 0.06, 'square', 0.09); playBeep(320, 0.07, 0.12, 'square', 0.09); }
+      // Duas notas subindo — chegada.
+      join: () => playChimeSequence([
+        { at: 0,    freq: 587, dur: 0.16, gain: 0.11 },
+        { at: 0.09, freq: 880, dur: 0.20, gain: 0.13 }
+      ]),
+      // Duas notas descendo — saída, um pouco mais suave/curta.
+      leave: () => playChimeSequence([
+        { at: 0,    freq: 740, dur: 0.14, gain: 0.10 },
+        { at: 0.08, freq: 493, dur: 0.20, gain: 0.10 }
+      ]),
+      // Uma nota curta e grave — feedback discreto de "mutei".
+      mute: () => playChimeSequence([{ at: 0, freq: 349, dur: 0.11, gain: 0.10 }]),
+      // Uma nota curta e mais aguda — "desmutei".
+      unmute: () => playChimeSequence([{ at: 0, freq: 587, dur: 0.11, gain: 0.10 }]),
+      // Três notas subindo rápido (acorde arpejado) — início de transmissão, chama atenção.
+      streamStart: () => playChimeSequence([
+        { at: 0,     freq: 523, dur: 0.10, gain: 0.11 },
+        { at: 0.055, freq: 659, dur: 0.10, gain: 0.11 },
+        { at: 0.11,  freq: 784, dur: 0.16, gain: 0.12 }
+      ]),
+      // As mesmas três notas em ordem inversa — fim de transmissão.
+      streamStop: () => playChimeSequence([
+        { at: 0,     freq: 784, dur: 0.10, gain: 0.10 },
+        { at: 0.055, freq: 659, dur: 0.10, gain: 0.10 },
+        { at: 0.11,  freq: 523, dur: 0.18, gain: 0.10 }
+      ])
     };
 
     function playSound(name) {
@@ -1105,9 +1183,19 @@
       document.getElementById('opt-fps-60').classList.toggle('selected', fps === '60');
     }
 
+    function toggleVoiceOnlyChannelFields(prefix) {
+      const type = prefix === 'new'
+        ? document.getElementById('new-channel-type').value
+        : (renameChannelTargetType || 'text');
+      document.getElementById(`${prefix}-channel-voice-fields`).style.display = (type === 'voice') ? 'block' : 'none';
+    }
+
     function openCreateChannel(type) {
       document.getElementById('new-channel-type').value = type;
       document.getElementById('new-channel-name').value = '';
+      document.getElementById('new-channel-limit').value = '';
+      document.getElementById('new-channel-noaudio').checked = false;
+      toggleVoiceOnlyChannelFields('new');
       openModal('channel-modal');
     }
 
@@ -1116,12 +1204,16 @@
       const type = document.getElementById('new-channel-type').value;
       if (!name) return;
 
-      socket.emit('create-channel', { name, type });
+      const userLimit = document.getElementById('new-channel-limit').value;
+      const noAudio = document.getElementById('new-channel-noaudio').checked;
+
+      socket.emit('create-channel', { name, type, userLimit, noAudio });
       closeModal('channel-modal');
     }
 
     // ---------- Editar / excluir canais ----------
     let renameChannelTargetId = null;
+    let renameChannelTargetType = 'text';
 
     function openRenameChannel(channelId) {
       const srv = servers.find(s => s.id === activeServerId);
@@ -1129,7 +1221,11 @@
       if (!ch) return;
       if (ch.locked) { alert(`O canal "${ch.name}" é fixo e não pode ser renomeado.`); return; }
       renameChannelTargetId = channelId;
+      renameChannelTargetType = ch.type;
       document.getElementById('rename-channel-input').value = ch.name;
+      document.getElementById('rename-channel-limit').value = ch.userLimit || '';
+      document.getElementById('rename-channel-noaudio').checked = !!ch.noAudio;
+      toggleVoiceOnlyChannelFields('rename');
       openModal('rename-channel-modal');
     }
 
@@ -1137,7 +1233,13 @@
       const newName = document.getElementById('rename-channel-input').value.trim();
       if (!newName || !renameChannelTargetId) { closeModal('rename-channel-modal'); return; }
 
-      socket.emit('rename-channel', { channelId: renameChannelTargetId, newName });
+      const payload = { channelId: renameChannelTargetId, newName };
+      if (renameChannelTargetType === 'voice') {
+        payload.userLimit = document.getElementById('rename-channel-limit').value;
+        payload.noAudio = document.getElementById('rename-channel-noaudio').checked;
+      }
+
+      socket.emit('rename-channel', payload);
       renameChannelTargetId = null;
       closeModal('rename-channel-modal');
     }
@@ -1167,6 +1269,17 @@
       if (count <= 0) return '';
       const label = count > 9 ? '9+' : String(count);
       return `<span class="channel-unread-badge">${label}</span>`;
+    }
+
+    // Badge de ocupação da sala de voz: "1/2" se tiver limite definido, ou só a
+    // contagem de gente ("3") se não tiver limite. Nada aparece se a sala está vazia
+    // e sem limite (não há nada útil pra mostrar nesse caso).
+    function channelOccupancyHtml(ch, occupantCount) {
+      const limit = ch.userLimit || 0;
+      if (limit <= 0 && occupantCount <= 0) return '';
+      const label = limit > 0 ? `${occupantCount}/${limit}` : String(occupantCount);
+      const full = limit > 0 && occupantCount >= limit;
+      return `<span class="channel-occupancy-badge${full ? ' full' : ''}">${label}</span>`;
     }
 
     function toggleServerMenu(e) {
@@ -1245,11 +1358,14 @@
 
       srv.channels.forEach(ch => {
         const isVoice = ch.type === 'voice';
+        const occupantCount = isVoice ? (voiceChannelUsers[ch.id] || []).length : 0;
         const div = document.createElement('div');
         div.className = `channel ${ch.id === activeChannel ? 'active' : ''}`;
         div.innerHTML = `
           <div class="channel-info"><span>${isVoice ? '🔊' : '#'}</span><span>${ch.name}</span></div>
           <div class="channel-right-controls">
+            ${isVoice && ch.noAudio ? `<span class="channel-silent-badge" title="Sala silenciosa (AFK) — sem áudio">🔇</span>` : ''}
+            ${isVoice ? channelOccupancyHtml(ch, occupantCount) : ''}
             ${unreadBadgeHtml(ch)}
             <div class="channel-actions">
               ${!ch.locked ? `<button class="channel-action-btn" title="Renomear canal" onclick="event.stopPropagation(); openRenameChannel('${ch.id}')">✏️</button>` : ''}
@@ -1259,6 +1375,10 @@
         `;
         
         div.onclick = () => {
+          if (isVoice && ch.userLimit > 0 && occupantCount >= ch.userLimit && connectedVoiceChannel !== ch.id) {
+            showToast(`Sala "${ch.name}" está cheia (máximo ${ch.userLimit} pessoas).`);
+            return;
+          }
           activeChannel = ch.id;
           if (!isVoice) unreadCounts[ch.id] = 0;
           document.getElementById('chat-header-title').textContent = `${isVoice ? '🔊' : '#'} ${ch.name}`;
@@ -1303,9 +1423,9 @@
                 <div class="voice-user-left">
                   <div class="voice-user-avatar" style="${avatarStyle}">${initialText}</div>
                   <span class="voice-user-name">${u.name}</span>
-                  ${voiceStatusIconsHtml(u, isSelf)}
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  ${voiceStatusIconsHtml(u, isSelf)}
                   ${liveBadge}
                 </div>
               `;
@@ -1325,10 +1445,10 @@
       if (localMicStream) return localMicStream;
       try {
         const deviceId = selectedMicId || document.getElementById('select-audio-input').value;
-        // Item 5: supressão de ruído estilo Krisp. Krisp em si é um SDK proprietário
-        // que não pode ser embutido de graça num app web; usamos aqui o que o navegador
-        // tem de mais forte em cancelamento de ruído/eco (inclui IA de supressão em
-        // hardware compatível no Chrome/Edge), que é o equivalente aberto mais próximo.
+        // Item 5: supressão de ruído. O verdadeiro Krisp é um SDK proprietário pago que não dá
+        // pra embutir de graça num app web; usamos aqui o que o navegador tem de mais forte
+        // (echo/noise/AGC nativos) SOMADO a um noise gate próprio (abaixo), que corta o volume
+        // quase todo quando você não está falando — é isso que reduz o ruído de ambiente.
         const noiseCleanConstraints = {
           echoCancellation: true,
           noiseSuppression: true,
@@ -1341,6 +1461,7 @@
         });
         localMicStream.getAudioTracks().forEach(t => t.enabled = !isMuted && !isDeafened);
         setupSpeakingDetection(localMicStream, socket.id);
+        setupMicProcessing(localMicStream);
       } catch (err) {
         console.error("Erro ao acessar o microfone:", err);
         alert("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
@@ -1348,12 +1469,79 @@
       return localMicStream;
     }
 
+    // Cria o grafo de áudio que aplica o noise gate: microfone -> ganho controlado -> stream
+    // de saída. Enquanto o volume estiver abaixo do limiar (ruído de ambiente, teclado, etc.),
+    // o ganho fica quase zerado; assim que detecta fala, abre rápido. Segura um pouquinho
+    // aberto depois de parar de falar (HOLD_MS) pra não cortar o final da palavra.
+    function setupMicProcessing(rawStream) {
+      teardownMicProcessing();
+      try {
+        micProcessingCtx = new (window.AudioContext || window.webkitAudioContext)();
+        micSourceNode = micProcessingCtx.createMediaStreamSource(rawStream);
+        micGateGainNode = micProcessingCtx.createGain();
+        micGateGainNode.gain.value = 0.03;
+        micDestNode = micProcessingCtx.createMediaStreamDestination();
+        micSourceNode.connect(micGateGainNode);
+        micGateGainNode.connect(micDestNode);
+
+        const analyser = micProcessingCtx.createAnalyser();
+        analyser.fftSize = 512;
+        micSourceNode.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        let gateOpen = false;
+        let lastAboveTime = 0;
+        const HOLD_MS = 400;
+
+        const tick = () => {
+          if (!micProcessingCtx || micProcessingCtx.state === 'closed') return;
+          analyser.getByteFrequencyData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) sum += data[i];
+          const level = sum / data.length;
+          const now = performance.now();
+
+          if (level > NOISE_GATE_THRESHOLD) {
+            lastAboveTime = now;
+            if (!gateOpen) {
+              gateOpen = true;
+              micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
+              micGateGainNode.gain.linearRampToValueAtTime(1, micProcessingCtx.currentTime + 0.02);
+            }
+          } else if (gateOpen && (now - lastAboveTime) > HOLD_MS) {
+            gateOpen = false;
+            micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
+            micGateGainNode.gain.linearRampToValueAtTime(0.03, micProcessingCtx.currentTime + 0.15);
+          }
+          noiseGateRafId = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch (e) { console.error('Erro ao configurar o supressor de ruído extra:', e); }
+    }
+
+    function teardownMicProcessing() {
+      if (noiseGateRafId) cancelAnimationFrame(noiseGateRafId);
+      noiseGateRafId = null;
+      if (micProcessingCtx) micProcessingCtx.close().catch(() => {});
+      micProcessingCtx = null;
+      micSourceNode = null;
+      micGateGainNode = null;
+      micDestNode = null;
+    }
+
+    // Retorna o stream que de fato deve ser enviado pros outros: o processado (com noise
+    // gate), se já estiver pronto; senão cai de volta pro stream cru do microfone.
+    function getOutgoingMicStream() {
+      return (micDestNode && micDestNode.stream) || localMicStream;
+    }
+
     async function restartLocalMic() {
       stopSpeakingDetection(socket.id);
+      teardownMicProcessing();
       if (localMicStream) { localMicStream.getTracks().forEach(t => t.stop()); localMicStream = null; }
       await ensureLocalMic();
       if (!localMicStream) return;
-      const newTrack = localMicStream.getAudioTracks()[0];
+      const newTrack = getOutgoingMicStream() ? getOutgoingMicStream().getAudioTracks()[0] : null;
       Object.entries(micSenders).forEach(([socketId, sender]) => {
         if (sender && newTrack) sender.replaceTrack(newTrack).catch(() => {});
       });
@@ -1366,11 +1554,12 @@
     }
 
     function addMicTrackToPeer(pc, targetSocketId) {
-      if (!localMicStream) return;
-      const track = localMicStream.getAudioTracks()[0];
+      const outStream = getOutgoingMicStream();
+      if (!outStream) return;
+      const track = outStream.getAudioTracks()[0];
       if (!track) return;
       if (micSenders[targetSocketId]) return;
-      micSenders[targetSocketId] = pc.addTrack(track, localMicStream);
+      micSenders[targetSocketId] = pc.addTrack(track, outStream);
     }
 
     function attachRemoteMicAudio(targetSocketId, stream) {
@@ -1492,14 +1681,25 @@
       addScreenTracksToPeer(pc);
     });
 
+    // true enquanto estamos numa sala marcada como "silenciosa" (AFK) — nela o
+    // microfone fica sempre mutado e não dá pra desmutar.
+    let currentRoomIsSilent = false;
+
     function connectVoice(channel) {
       if (connectedVoiceChannel && connectedVoiceChannel !== channel.id) {
         socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
       }
       connectedVoiceChannel = channel.id;
+      currentRoomIsSilent = !!channel.noAudio;
+      if (currentRoomIsSilent) {
+        isMuted = true;
+        showToast(`"${channel.name}" é uma sala silenciosa (AFK) — seu microfone fica mutado aqui.`);
+      }
       socket.emit('join-voice-room', { channelId: channel.id, username, avatarUrl: userAvatarUrl, type: 'voice' });
 
       document.getElementById('mic-btn').disabled = false;
+      document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
+      document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('deafen-btn').disabled = false;
       document.getElementById('share-btn').disabled = false;
       document.getElementById('voice-connection-panel').style.display = 'flex';
@@ -1522,12 +1722,10 @@
       });
     }
 
-    function disconnectVoice(e) {
-      if (e) e.stopPropagation();
-      if (connectedVoiceChannel) {
-        socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
-        connectedVoiceChannel = null;
-      }
+    // Desliga tudo relacionado à conexão de voz atual: mic, processamento de áudio,
+    // conexões WebRTC. Usada tanto ao sair de propósito quanto quando o servidor
+    // recusa a entrada (ex: sala cheia) e precisamos desfazer a conexão otimista.
+    function teardownVoiceConnectionState() {
       document.getElementById('mic-btn').disabled = true;
       document.getElementById('deafen-btn').disabled = true;
       document.getElementById('share-btn').disabled = true;
@@ -1535,6 +1733,7 @@
       if (localStream) stopScreenShare();
 
       if (localMicStream) { localMicStream.getTracks().forEach(t => t.stop()); localMicStream = null; }
+      teardownMicProcessing();
       stopSpeakingDetection(socket.id);
       Object.keys(peerConnections).forEach(id => { peerConnections[id].close(); delete peerConnections[id]; });
       Object.keys(peerAudioEls).forEach(removeRemoteMicAudio);
@@ -1542,10 +1741,31 @@
       liveStreamers = {};
       watchedStreams = {};
       activeStreams = {};
+      currentRoomIsSilent = false;
 
       renderChannels();
       renderStreamsContainer();
     }
+
+    function disconnectVoice(e) {
+      if (e) e.stopPropagation();
+      if (connectedVoiceChannel) {
+        socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
+        connectedVoiceChannel = null;
+      }
+      teardownVoiceConnectionState();
+    }
+
+    // O servidor recusou a entrada porque a sala já estava no limite de pessoas.
+    // Como já tínhamos assumido a conexão localmente (pra UI responder na hora),
+    // precisamos desfazer tudo isso agora.
+    socket.on('voice-room-full', (data) => {
+      showToast(`Sala "${data.name}" está cheia (máximo ${data.limit} pessoas).`);
+      if (connectedVoiceChannel === data.channelId) {
+        connectedVoiceChannel = null;
+        teardownVoiceConnectionState();
+      }
+    });
 
     // Ícones de mutado/ensurdecido: usa o estado local pra mim mesmo (feedback na hora)
     // e o que veio do servidor pros outros. Ensurdecido tem prioridade visual, já que
@@ -1603,6 +1823,10 @@
     }
 
     function toggleMute() {
+      if (currentRoomIsSilent) {
+        showToast('Esta sala é silenciosa (AFK) — o microfone fica sempre mutado aqui.');
+        return;
+      }
       isMuted = !isMuted;
       applyMicState();
       playSound(isMuted ? 'mute' : 'unmute');
