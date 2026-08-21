@@ -1,141 +1,124 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const path = require('path');
+// ... (mantenha o código anterior até a função startScreenShare)
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  maxHttpBufferSize: 1e7 // Permite envio de fotos de perfil via Base64 (até 10MB)
-});
+    async function startScreenShare() {
+      let width = selectedResolution === '1080' ? 1920 : 1280;
+      let height = selectedResolution === '1080' ? 1080 : 720;
+      let fps = parseInt(selectedFps, 10);
 
-// Serve os arquivos estáticos (HTML, CSS, JS) da pasta public
-app.use(express.static(path.join(__dirname, 'public')));
+      try {
+        localStream = await navigator.mediaDevices.getDisplayMedia({ 
+          video: { width: { ideal: width }, height: { ideal: height }, frameRate: { ideal: fps } }, 
+          audio: true 
+        });
+        
+        addScreenStream(username, localStream);
+        // Avisa a todos que você começou a transmitir
+        socket.emit('start-streaming', connectedVoiceChannel);
 
-// Rota principal apontando corretamente para o index.html dentro da pasta public
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+        const shareBtn = document.getElementById('stage-share-btn');
+        shareBtn.classList.add('active-share');
+        shareBtn.title = "Encerrar Transmissão";
+        document.getElementById('stage-quality-btn').style.display = 'flex';
 
-// Armazena a lista de usuários conectados em cada canal de voz
-const voiceUsers = {};
-// Armazena quem está transmitindo por canal: { [channelId]: [socketId1, socketId2] }
-const activeRoomStreams = {};
-
-io.on('connection', (socket) => {
-  console.log(`Usuário conectado: ${socket.id}`);
-
-  // Entrar em uma sala de texto ou canal
-  socket.on('join-room', (roomId) => {
-    socket.join(roomId);
-  });
-
-  // Transmissão de mensagens do chat
-  socket.on('chat-message', (data) => {
-    if (data.room) {
-      io.to(data.room).emit('chat-message', data);
-    }
-  });
-
-  // Entrar em um canal de voz
-  socket.on('join-voice-room', (data) => {
-    const { channelId, username, avatarUrl } = data;
-
-    if (!voiceUsers[channelId]) {
-      voiceUsers[channelId] = [];
+        localStream.getVideoTracks()[0].onended = () => stopScreenShare();
+      } catch (err) { console.error("Erro ao transmitir:", err); }
     }
 
-    voiceUsers[channelId] = voiceUsers[channelId].filter(u => u.socketId !== socket.id);
-
-    voiceUsers[channelId].push({
-      socketId: socket.id,
-      name: username,
-      avatarUrl: avatarUrl || null
-    });
-
-    socket.currentVoiceChannel = channelId;
-    socket.join(channelId);
-    io.emit('update-voice-users', voiceUsers);
-
-    // Envia para quem acabou de entrar a lista de quem já está transmitindo nesta sala
-    if (activeRoomStreams[channelId]) {
-      socket.emit('sync-active-streams', activeRoomStreams[channelId]);
-    }
-  });
-
-  // Sair de um canal de voz
-  socket.on('leave-voice-room', (data) => {
-    const channelId = data.channelId || socket.currentVoiceChannel;
-    
-    if (channelId && voiceUsers[channelId]) {
-      voiceUsers[channelId] = voiceUsers[channelId].filter(u => u.socketId !== socket.id);
-      socket.leave(channelId);
-      delete socket.currentVoiceChannel;
+    function stopScreenShare() {
+      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+      removeScreenStream(username);
+      if (connectedVoiceChannel) {
+        socket.emit('stop-streaming', connectedVoiceChannel);
+      }
       
-      io.emit('update-voice-users', voiceUsers);
+      // Fecha todas as conexões ativas ao parar
+      Object.keys(peerConnections).forEach(socketId => {
+        peerConnections[socketId].close();
+        delete peerConnections[socketId];
+      });
+
+      const shareBtn = document.getElementById('stage-share-btn');
+      shareBtn.classList.remove('active-share');
+      shareBtn.title = "Transmitir Tela";
+      document.getElementById('stage-quality-btn').style.display = 'none';
     }
-  });
 
-  // Eventos de Transmissão de Tela
-  socket.on('start-streaming', (channelId) => {
-    if (!activeRoomStreams[channelId]) activeRoomStreams[channelId] = [];
-    if (!activeRoomStreams[channelId].includes(socket.id)) {
-      activeRoomStreams[channelId].push(socket.id);
+    // CRÍTICO: Esta função cria a conexão e lida com o track
+    function createPeerConnection(targetSocketId) {
+      if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
+
+      const pc = new RTCPeerConnection(rtcConfig);
+      peerConnections[targetSocketId] = pc;
+
+      // Adiciona o stream local caso já esteja transmitindo
+      if (localStream) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
+
+      pc.ontrack = (event) => {
+        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+        const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
+        if (targetUser) addScreenStream(targetUser.name, event.streams[0]);
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('webrtc-candidate', { targetSocketId, candidate: event.candidate });
+        }
+      };
+
+      return pc;
     }
-    socket.to(channelId).emit('user-started-streaming', socket.id);
-  });
 
-  socket.on('stop-streaming', (channelId) => {
-    if (activeRoomStreams[channelId]) {
-      activeRoomStreams[channelId] = activeRoomStreams[channelId].filter(id => id !== socket.id);
-    }
-    socket.to(channelId).emit('user-stopped-streaming', socket.id);
-  });
-
-  // --- SINALIZAÇÃO WEBRTC ---
-  socket.on('webrtc-offer', (data) => {
-    socket.to(data.targetSocketId).emit('webrtc-offer', {
-      senderSocketId: socket.id,
-      offer: data.offer
-    });
-  });
-
-  socket.on('webrtc-answer', (data) => {
-    socket.to(data.targetSocketId).emit('webrtc-answer', {
-      senderSocketId: socket.id,
-      answer: data.answer
-    });
-  });
-
-  socket.on('webrtc-candidate', (data) => {
-    socket.to(data.targetSocketId).emit('webrtc-candidate', {
-      senderSocketId: socket.id,
-      candidate: data.candidate
-    });
-  });
-
-  // Limpeza quando o usuário fecha a aba ou desconecta
-  socket.on('disconnect', () => {
-    console.log(`Usuário desconectado: ${socket.id}`);
-    
-    Object.keys(activeRoomStreams).forEach(channelId => {
-      activeRoomStreams[channelId] = activeRoomStreams[channelId].filter(id => id !== socket.id);
-      socket.to(channelId).emit('user-stopped-streaming', socket.id);
+    // Eventos de Sincronização
+    socket.on('user-started-streaming', (targetSocketId) => {
+      // Quando alguém avisa que começou, quem é "initiator" cria a oferta
+      const pc = createPeerConnection(targetSocketId);
+      if (socket.id > targetSocketId) {
+        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+          socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
+        });
+      }
     });
 
-    if (socket.currentVoiceChannel && voiceUsers[socket.currentVoiceChannel]) {
-      voiceUsers[socket.currentVoiceChannel] = voiceUsers[socket.currentVoiceChannel].filter(
-        u => u.socketId !== socket.id
-      );
-      io.emit('update-voice-users', voiceUsers);
-    }
-  });
-});
+    socket.on('user-stopped-streaming', (targetSocketId) => {
+      if (peerConnections[targetSocketId]) {
+        peerConnections[targetSocketId].close();
+        delete peerConnections[targetSocketId];
+      }
+      const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+      const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
+      if (targetUser) removeScreenStream(targetUser.name);
+    });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`\n==============================================`);
-  console.log(` Servidor DSpeak rodando com sucesso!`);
-  console.log(` Acesse em: http://localhost:${PORT}`);
-  console.log(`==============================================\n`);
-});
+    // Ao recarregar, o servidor envia quem está transmitindo
+    socket.on('sync-active-streams', (streamingSocketIds) => {
+      streamingSocketIds.forEach(targetSocketId => {
+        if (targetSocketId !== socket.id) {
+          const pc = createPeerConnection(targetSocketId);
+          if (socket.id > targetSocketId) {
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+              socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
+            });
+          }
+        }
+      });
+    });
+
+    socket.on('webrtc-offer', async (data) => {
+      const pc = createPeerConnection(data.senderSocketId);
+      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer });
+    });
+
+    socket.on('webrtc-answer', async (data) => {
+      const pc = peerConnections[data.senderSocketId];
+      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+    });
+
+    socket.on('webrtc-candidate', async (data) => {
+      const pc = peerConnections[data.senderSocketId];
+      if (pc) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    });
