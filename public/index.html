@@ -718,6 +718,43 @@
 
     const socket = io();
 
+    // ---------- Recuperação automática de queda de conexão ----------
+    // Sem isso, qualquer oscilação de rede (Wi-Fi engasgando, aba em segundo plano,
+    // celular travando a tela) faz o socket reconectar com um ID novo que o servidor
+    // não reconhece — e a pessoa some da sala de voz pros outros, parecendo que
+    // "desconectou sozinha", mesmo sem ter feito nada.
+    let hadVoiceConnectionBeforeDrop = false;
+
+    socket.on('disconnect', () => {
+      hadVoiceConnectionBeforeDrop = !!connectedVoiceChannel;
+      if (hadVoiceConnectionBeforeDrop) {
+        showToast('Conexão com o servidor caiu. Tentando reconectar...');
+      }
+    });
+
+    socket.on('connect', () => {
+      if (!username) return; // ainda na tela de login — o fluxo normal cuida disso
+
+      // Se reconectamos, o servidor esqueceu quem éramos (novo socket.id) — precisa
+      // se re-registrar e voltar pra sala de voz em que estávamos.
+      socket.emit('register-user', { username, avatarUrl: userAvatarUrl });
+
+      if (connectedVoiceChannel) {
+        socket.emit('join-voice-room', { channelId: connectedVoiceChannel, username, avatarUrl: userAvatarUrl, type: 'voice' });
+        socket.emit('join-room', connectedVoiceChannel);
+
+        Object.keys(peerConnections).forEach(id => { peerConnections[id].close(); delete peerConnections[id]; });
+        Object.keys(peerAudioEls).forEach(removeRemoteMicAudio);
+        micSenders = {};
+        reconnectPeersInCurrentChannel();
+      }
+
+      if (hadVoiceConnectionBeforeDrop) {
+        showToast('Reconectado!');
+        hadVoiceConnectionBeforeDrop = false;
+      }
+    });
+
     let username = "";
     let userAvatarUrl = "";
     let tempAvatarUrl = "";
@@ -1934,6 +1971,13 @@
       socket.emit('join-room', channel.id);
 
       // Captura o microfone real e conecta a voz com quem já está na sala.
+      reconnectPeersInCurrentChannel();
+    }
+
+    // Conecta (ou reconecta) com todo mundo que já está na sala de voz atual.
+    // Usada tanto ao entrar numa sala quanto ao recuperar a conexão depois de uma
+    // queda momentânea (Wi-Fi engasgando, aba em segundo plano, celular travando a tela).
+    function reconnectPeersInCurrentChannel() {
       ensureLocalMic().then(() => {
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
         usersInChannel.forEach(u => {
