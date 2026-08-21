@@ -842,9 +842,9 @@
       initials: 'DS',
       channels: [
         { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
-        { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true },
         { id: 'waiting-room-text', name: 'sala-de-espera', type: 'text', undeletable: true, locked: true },
-        { id: 'waiting-room', name: 'Sala de Espera', type: 'voice', undeletable: true, locked: true }
+        { id: 'waiting-room', name: 'Sala de Espera', type: 'voice', undeletable: true, locked: true },
+        { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
       ]
     }];
 
@@ -856,11 +856,10 @@
     const ROLE_LABELS = { owner: 'OWNER', moderator: 'MOD', member: 'MEMBRO', guest: 'GUEST' };
     const ROLE_COLORS = { owner: '#ffd700', moderator: '#00ffcc', member: '#8fd3ff', guest: '#8a8f9d' };
 
+    // Os cargos e permissões continuam funcionando normalmente por baixo dos panos —
+    // só a etiqueta visível (OWNER/MOD/MEMBRO/GUEST) foi escondida a pedido do usuário.
     function roleBadgeHtml(role) {
-      if (!role) return '';
-      const label = ROLE_LABELS[role] || role.toUpperCase();
-      const color = ROLE_COLORS[role] || '#8a8f9d';
-      return `<span class="role-badge" style="color:${color}; border-color:${color};">${label}</span>`;
+      return '';
     }
 
     function canManageUser(targetRole) {
