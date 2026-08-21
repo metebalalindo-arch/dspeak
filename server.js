@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- SINALIZAÇÃO WEBRTC (Para a live aparecer para os outros) ---
+  // --- SINALIZAÇÃO WEBRTC ---
   socket.on('webrtc-offer', (data) => {
     socket.to(data.targetSocketId).emit('webrtc-offer', {
       senderSocketId: socket.id,
