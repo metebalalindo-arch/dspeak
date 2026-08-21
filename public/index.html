@@ -995,8 +995,17 @@
       updateUserProfileUI();
       socket.emit('change-profile', { oldName, newName: username, avatarUrl: userAvatarUrl });
 
+      // Atualização otimista: reflete o novo nome/avatar na hora em toda a UI local,
+      // sem esperar o servidor responder (ele confirma logo em seguida pros outros usuários).
+      Object.keys(voiceChannelUsers).forEach(channelId => {
+        voiceChannelUsers[channelId] = (voiceChannelUsers[channelId] || []).map(u =>
+          u.socketId === socket.id ? { ...u, name: username, avatarUrl: userAvatarUrl } : u
+        );
+      });
+
       stopMicTest();
       closeModal('settings-center-modal');
+      renderChannels();
       renderStageUsers();
     }
 
