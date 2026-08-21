@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -16,6 +17,70 @@ app.get('/', (req, res) => {
 const voiceUsers = {};
 const activeRoomStreams = {};
 
+// ---------- Canais persistidos no servidor (compartilhados por todo mundo) ----------
+// Antes, os canais só existiam localmente no navegador de cada pessoa: cada um via uma
+// lista diferente e tudo sumia ao dar F5. Agora o servidor é a fonte da verdade: guarda
+// em disco e manda a mesma lista pra todo mundo, sempre atualizada.
+const CHANNELS_FILE = path.join(__dirname, 'channels.json');
+const DEFAULT_CHANNELS = [
+  { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
+  { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
+];
+
+let channels = DEFAULT_CHANNELS;
+try {
+  if (fs.existsSync(CHANNELS_FILE)) {
+    const loaded = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf8'));
+    if (Array.isArray(loaded) && loaded.length > 0) channels = loaded;
+  }
+} catch (e) {
+  console.error('Não foi possível ler channels.json, usando os padrões.', e);
+}
+
+function saveChannels() {
+  try {
+    fs.writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2));
+  } catch (e) {
+    console.error('Não foi possível salvar channels.json', e);
+  }
+}
+
+// ---------- Histórico de chat persistido, com expiração de 7 dias ----------
+const MESSAGES_FILE = path.join(__dirname, 'messages.json');
+const MESSAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+
+let messages = {}; // channelId -> [{ room, message, user, avatarUrl, time, date, timestamp }]
+try {
+  if (fs.existsSync(MESSAGES_FILE)) {
+    messages = JSON.parse(fs.readFileSync(MESSAGES_FILE, 'utf8'));
+  }
+} catch (e) {
+  console.error('Não foi possível ler messages.json, começando do zero.', e);
+  messages = {};
+}
+
+function saveMessages() {
+  try {
+    fs.writeFileSync(MESSAGES_FILE, JSON.stringify(messages, null, 2));
+  } catch (e) {
+    console.error('Não foi possível salvar messages.json', e);
+  }
+}
+
+function pruneChannelMessages(channelId) {
+  if (!messages[channelId]) return;
+  const cutoff = Date.now() - MESSAGE_RETENTION_MS;
+  messages[channelId] = messages[channelId].filter(m => m.timestamp >= cutoff);
+}
+
+function pruneAllMessages() {
+  Object.keys(messages).forEach(pruneChannelMessages);
+  saveMessages();
+}
+
+pruneAllMessages(); // limpa mensagens vencidas assim que o servidor sobe
+setInterval(pruneAllMessages, 60 * 60 * 1000); // e a cada hora, mesmo sem mensagens novas
+
 io.on('connection', (socket) => {
   console.log('Cliente conectado:', socket.id);
 
@@ -28,6 +93,9 @@ io.on('connection', (socket) => {
     // MAIS entrava ou saía depois — por isso a lista ficava vazia até você mesmo
     // entrar numa sala (o que aí sim disparava uma atualização).
     socket.emit('update-voice-users', voiceUsers);
+
+    // Manda a lista de canais atual (a mesma pra todo mundo, persistida em disco).
+    socket.emit('channels-sync', channels);
   });
 
   // Atualiza apelido/avatar em tempo real pra todo mundo, sem precisar de F5.
@@ -57,7 +125,57 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat-message', (data) => {
-    io.to(data.room).emit('chat-message', data);
+    const entry = { ...data, timestamp: Date.now() };
+    if (!messages[data.room]) messages[data.room] = [];
+    messages[data.room].push(entry);
+    pruneChannelMessages(data.room);
+    saveMessages();
+    io.to(data.room).emit('chat-message', entry);
+  });
+
+  // Manda o histórico (até 7 dias) daquele canal só pra quem pediu, quando ele
+  // entra ou troca de canal — é assim que o chat "individual por sala" sobrevive
+  // a atualizações de página e é o mesmo pra todo mundo.
+  socket.on('get-channel-history', (channelId) => {
+    pruneChannelMessages(channelId);
+    socket.emit('channel-history', { room: channelId, messages: messages[channelId] || [] });
+  });
+
+  // ---------- Criar / renomear / excluir canais (compartilhado com todo mundo) ----------
+  socket.on('create-channel', (data) => {
+    const name = String(data && data.name || '').trim();
+    const type = data && data.type;
+    if (!name || (type !== 'text' && type !== 'voice')) return;
+
+    const id = name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
+    channels.push({ id, name, type });
+    saveChannels();
+    io.emit('channels-sync', channels);
+  });
+
+  socket.on('rename-channel', (data) => {
+    const channelId = data && data.channelId;
+    const newName = String(data && data.newName || '').trim();
+    if (!newName) return;
+
+    const ch = channels.find(c => c.id === channelId);
+    if (!ch || ch.locked) return; // canais travados (ex: "geral") não podem ser renomeados
+
+    ch.name = newName;
+    saveChannels();
+    io.emit('channels-sync', channels);
+  });
+
+  socket.on('delete-channel', (channelId) => {
+    const ch = channels.find(c => c.id === channelId);
+    if (!ch || ch.undeletable) return; // "geral" e "Lobby" nunca podem ser excluídos
+    if (channels.length <= 1) return;
+
+    channels = channels.filter(c => c.id !== channelId);
+    delete messages[channelId];
+    saveChannels();
+    saveMessages();
+    io.emit('channels-sync', channels);
   });
 
   socket.on('join-voice-room', (data) => {
