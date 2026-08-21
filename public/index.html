@@ -85,6 +85,9 @@
     .role-pull-btn:hover { background: #00ffcc; color: #0c0d10; }
     .channel-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0; }
     .channel:hover .channel-actions { opacity: 1; }
+
+    .voice-user-manage-controls { display: flex; align-items: center; gap: 8px; opacity: 0; transition: opacity 0.15s; }
+    .voice-user-item:hover .voice-user-manage-controls { opacity: 1; }
     .channel-action-btn { background: transparent; border: none; color: #8a8f9d; cursor: pointer; font-size: 12px; width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .channel-action-btn:hover { color: #fff; background: rgba(255, 85, 0, 0.25); }
     .channel-action-btn.delete:hover { background: rgba(255, 51, 51, 0.25); color: #ff3333; }
@@ -1593,8 +1596,10 @@
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
                   ${voiceStatusIconsHtml(u, isSelf)}
-                  ${voiceVolumeBtnHtml(u, isSelf)}
-                  ${roleManageBtnHtml(u, isSelf)}
+                  <div class="voice-user-manage-controls">
+                    ${voiceVolumeBtnHtml(u, isSelf)}
+                    ${roleManageBtnHtml(u, isSelf)}
+                  </div>
                   ${liveBadge}
                 </div>
               `;
@@ -2164,11 +2169,9 @@
           <div class="card-name-row">
             <div class="card-name-pill">${u.name}</div>
             ${voiceStatusIconsHtml(u, isSelf)}
-            ${voiceVolumeBtnHtml(u, isSelf)}
             ${roleBadgeHtml(u.role)}
           </div>
           ${liveBadge}
-          ${roleManageBtnHtml(u, isSelf)}
         `;
         stage.appendChild(card);
       });
