@@ -665,8 +665,8 @@
       name: 'DSPEAK SERVER',
       initials: 'DS',
       channels: [
-        { id: 'geral', name: 'geral', type: 'text' },
-        { id: 'lobby', name: 'Lobby', type: 'voice' }
+        { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
+        { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
       ]
     }];
 
@@ -1062,12 +1062,7 @@
       const type = document.getElementById('new-channel-type').value;
       if (!name) return;
 
-      const srv = servers.find(s => s.id === activeServerId);
-      if (srv) {
-        const id = name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
-        srv.channels.push({ id, name, type });
-        renderChannels();
-      }
+      socket.emit('create-channel', { name, type });
       closeModal('channel-modal');
     }
 
@@ -1078,6 +1073,7 @@
       const srv = servers.find(s => s.id === activeServerId);
       const ch = srv && srv.channels.find(c => c.id === channelId);
       if (!ch) return;
+      if (ch.locked) { alert(`O canal "${ch.name}" é fixo e não pode ser renomeado.`); return; }
       renameChannelTargetId = channelId;
       document.getElementById('rename-channel-input').value = ch.name;
       openModal('rename-channel-modal');
@@ -1087,48 +1083,25 @@
       const newName = document.getElementById('rename-channel-input').value.trim();
       if (!newName || !renameChannelTargetId) { closeModal('rename-channel-modal'); return; }
 
-      const srv = servers.find(s => s.id === activeServerId);
-      const ch = srv && srv.channels.find(c => c.id === renameChannelTargetId);
-      if (ch) {
-        ch.name = newName;
-        if (activeChannel === ch.id) {
-          document.getElementById('chat-header-title').textContent = `${ch.type === 'voice' ? '🔊' : '#'} ${ch.name}`;
-        }
-        if (connectedVoiceChannel === ch.id) {
-          document.getElementById('voice-status-channel-name').textContent = ch.name;
-        }
-        renderChannels();
-      }
+      socket.emit('rename-channel', { channelId: renameChannelTargetId, newName });
       renameChannelTargetId = null;
       closeModal('rename-channel-modal');
     }
 
     function deleteChannel(channelId) {
       const srv = servers.find(s => s.id === activeServerId);
-      if (!srv) return;
-      const ch = srv.channels.find(c => c.id === channelId);
+      const ch = srv && srv.channels.find(c => c.id === channelId);
       if (!ch) return;
 
-      if (srv.channels.length <= 1) {
-        alert('Não é possível excluir o último canal do servidor.');
+      if (ch.undeletable) {
+        alert(`O canal "${ch.name}" é fixo e não pode ser excluído.`);
         return;
       }
       if (!confirm(`Tem certeza que deseja excluir "${ch.name}"? Essa ação não pode ser desfeita.`)) return;
 
       if (connectedVoiceChannel === channelId) disconnectVoice();
-
-      srv.channels = srv.channels.filter(c => c.id !== channelId);
       delete unreadCounts[channelId];
-
-      if (activeChannel === channelId) {
-        const fallback = srv.channels.find(c => c.type === 'text') || srv.channels[0];
-        if (fallback) {
-          activeChannel = fallback.id;
-          document.getElementById('chat-header-title').textContent = `${fallback.type === 'voice' ? '🔊' : '#'} ${fallback.name}`;
-          socket.emit('join-room', fallback.id);
-        }
-      }
-      renderChannels();
+      socket.emit('delete-channel', channelId);
     }
 
     // ---------- Notificação de mensagem não lida ----------
@@ -1225,8 +1198,8 @@
           <div class="channel-right-controls">
             ${unreadBadgeHtml(ch)}
             <div class="channel-actions">
-              <button class="channel-action-btn" title="Renomear canal" onclick="event.stopPropagation(); openRenameChannel('${ch.id}')">✏️</button>
-              <button class="channel-action-btn delete" title="Excluir canal" onclick="event.stopPropagation(); deleteChannel('${ch.id}')">🗑</button>
+              ${!ch.locked ? `<button class="channel-action-btn" title="Renomear canal" onclick="event.stopPropagation(); openRenameChannel('${ch.id}')">✏️</button>` : ''}
+              ${!ch.undeletable ? `<button class="channel-action-btn delete" title="Excluir canal" onclick="event.stopPropagation(); deleteChannel('${ch.id}')">🗑</button>` : ''}
             </div>
           </div>
         `;
@@ -2060,12 +2033,20 @@
 
     // Troca o chat visível pro histórico daquele canal específico (cada sala, de texto
     // ou de voz, guarda seu próprio papo separado durante a sessão).
-    function loadChannelMessages(channelId) {
+    // Renderiza só o que já está em memória nesta sessão (rápido, sem round-trip).
+    function renderChannelMessagesFromCache(channelId) {
       const chatList = document.getElementById('chat-messages-list');
       chatList.innerHTML = '';
       lastRenderedDate = '';
       const history = channelMessages[channelId] || [];
       history.forEach(msg => appendMessageToDOM(msg));
+    }
+
+    // Ao trocar de canal: mostra o que já está em cache na hora, e pede pro servidor
+    // o histórico de verdade (persistido, até 7 dias) — que substitui o cache quando chega.
+    function loadChannelMessages(channelId) {
+      renderChannelMessagesFromCache(channelId);
+      socket.emit('get-channel-history', channelId);
     }
 
     // Mostra o chat em tela cheia (sem palco) pra canal de texto; mostra palco + chat
@@ -2074,6 +2055,46 @@
       const workspace = document.querySelector('.content-workspace');
       workspace.classList.toggle('text-mode', !isVoice);
     }
+
+    socket.on('channel-history', (data) => {
+      channelMessages[data.room] = data.messages || [];
+      if (data.room === activeChannel) renderChannelMessagesFromCache(data.room);
+    });
+
+    // Canais agora vivem no servidor e são os mesmos pra todo mundo — esse evento chega
+    // sempre que alguém cria, renomeia ou exclui um canal (inclusive nós mesmos).
+    socket.on('channels-sync', (channelsList) => {
+      const srv = servers.find(s => s.id === activeServerId);
+      if (!srv) return;
+      srv.channels = channelsList;
+
+      let active = srv.channels.find(c => c.id === activeChannel);
+      if (!active) {
+        // O canal que estávamos vendo foi excluído — volta pro geral (ou o primeiro disponível).
+        const fallback = srv.channels.find(c => c.type === 'text') || srv.channels[0];
+        if (fallback) {
+          activeChannel = fallback.id;
+          active = fallback;
+          switchWorkspaceLayout(fallback.type === 'voice');
+          loadChannelMessages(fallback.id);
+        }
+      }
+      if (active) {
+        document.getElementById('chat-header-title').textContent = `${active.type === 'voice' ? '🔊' : '#'} ${active.name}`;
+      }
+
+      if (connectedVoiceChannel) {
+        const vch = srv.channels.find(c => c.id === connectedVoiceChannel);
+        if (vch) {
+          document.getElementById('voice-status-channel-name').textContent = vch.name;
+        } else {
+          // A sala de voz em que estávamos foi excluída.
+          connectedVoiceChannel = null;
+        }
+      }
+
+      renderChannels();
+    });
 
     socket.on('chat-message', (data) => {
       if (!channelMessages[data.room]) channelMessages[data.room] = [];
