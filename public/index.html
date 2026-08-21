@@ -219,23 +219,11 @@
     .stream-close-btn:hover { background: #ff3333; }
     .stream-close-btn svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 2; fill: none; }
 
-    .role-badge { font-size: 8px; font-weight: 800; letter-spacing: 0.4px; padding: 1px 5px; border-radius: 4px; border: 1px solid; flex-shrink: 0; }
-    .role-manage-btn { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: #b5bac1; width: 20px; height: 20px; border-radius: 5px; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .role-manage-btn:hover { background: #ff5500; color: #fff; border-color: #ff5500; }
+    .connected-users-stage { display: flex; flex-wrap: wrap; gap: 12px; align-content: center; justify-content: center; overflow-y: auto; max-height: 170px; padding: 4px; flex-shrink: 0; }
 
-    .role-modal-user { text-align: center; font-size: 15px; font-weight: bold; color: #f2f3f5; margin-bottom: 4px; }
-    .role-modal-current { text-align: center; font-size: 12px; color: #8a8f9d; margin-bottom: 16px; }
-    .role-option-btn { background: #181b24; border: 1.5px solid rgba(255,255,255,0.08); color: #f2f3f5; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; text-align: left; transition: all 0.15s; }
-    .role-option-btn:hover { border-color: #ff5500; background: rgba(255, 85, 0, 0.1); }
-    .role-option-btn.current { border-color: #00ffcc; background: rgba(0, 255, 204, 0.08); cursor: default; }
-    .role-pull-btn { background: rgba(0, 255, 204, 0.12); border: 1.5px solid rgba(0, 255, 204, 0.4); color: #00ffcc; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 700; margin-top: 6px; }
-    .role-pull-btn:hover { background: #00ffcc; color: #0c0d10; }
-
-    .connected-users-stage { display: flex; flex-wrap: wrap; gap: 8px; align-content: center; justify-content: center; overflow-y: auto; max-height: 130px; padding: 4px; flex-shrink: 0; }
-
-    .user-card { width: 90px; height: 90px; border-radius: 12px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.6); gap: 4px; }
-    .card-avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 13px; background-size: cover; background-position: center; border: 2px solid #ff5500; }
-    .card-name-pill { font-size: 10px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; text-align: center; }
+    .user-card { width: 150px; height: 104px; border-radius: 14px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.6); gap: 6px; }
+    .card-avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 17px; background-size: cover; background-position: center; border: 2px solid #ff5500; }
+    .card-name-pill { font-size: 13px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; text-align: center; }
 
     .stage-controls-dock { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(19, 21, 27, 0.92); backdrop-filter: blur(12px); border-radius: 18px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; z-index: 300; border: 1px solid rgba(255, 85, 0, 0.35); box-shadow: 0 12px 35px rgba(0,0,0,0.9), 0 0 20px rgba(255,85,0,0.25); opacity: 1; transition: opacity 0.25s ease, transform 0.25s ease; }
     .stage-controls-dock.dock-hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
@@ -573,18 +561,6 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="role-modal">
-    <div class="modal" style="width: 340px;">
-      <button class="modal-close-btn" onclick="closeModal('role-modal')">✕</button>
-      <div class="modal-header-center">
-        <h2>Gerenciar Usuário</h2>
-      </div>
-      <div class="role-modal-user" id="role-modal-username">—</div>
-      <div class="role-modal-current" id="role-modal-current-role">Cargo atual: —</div>
-      <div id="role-modal-options" style="display:flex; flex-direction:column; gap:8px;"></div>
-    </div>
-  </div>
-
   <div id="main">
     <div id="chat-header">
       <div class="dm-header-left">
@@ -660,42 +636,9 @@
       initials: 'DS',
       channels: [
         { id: 'geral', name: 'geral', type: 'text' },
-        { id: 'lobby', name: 'Lobby', type: 'voice' },
-        { id: 'waiting-room-text', name: 'sala-de-espera', type: 'text' },
-        { id: 'waiting-room', name: 'Sala de Espera', type: 'voice' }
+        { id: 'lobby', name: 'Lobby', type: 'voice' }
       ]
     }];
-
-    // --- Item 4: cargos (Owner / Moderador / Membro / Guest) ---
-    const WAITING_VOICE_ROOM = 'waiting-room';
-    const WAITING_TEXT_ROOM = 'waiting-room-text';
-    let myRole = 'guest';
-
-    const ROLE_LABELS = { owner: 'OWNER', moderator: 'MOD', member: 'MEMBRO', guest: 'GUEST' };
-    const ROLE_COLORS = { owner: '#ffd700', moderator: '#00ffcc', member: '#8fd3ff', guest: '#8a8f9d' };
-
-    function roleBadgeHtml(role) {
-      if (!role) return '';
-      const label = ROLE_LABELS[role] || role.toUpperCase();
-      const color = ROLE_COLORS[role] || '#8a8f9d';
-      return `<span class="role-badge" style="color:${color}; border-color:${color};">${label}</span>`;
-    }
-
-    // Retorna true se EU (myRole) tenho permissão de gerenciar o cargo desse usuário.
-    function canManageUser(targetRole) {
-      if (targetRole === 'owner') return false;
-      if (myRole === 'owner') return true;
-      if (myRole === 'moderator' && targetRole === 'guest') return true;
-      return false;
-    }
-
-    function roleManageBtnHtml(u, isSelf) {
-      if (isSelf) return '';
-      if (myRole !== 'owner' && myRole !== 'moderator') return '';
-      if (u.role === 'owner') return ''; // ninguém mexe no Owner por aqui
-      const safeName = String(u.name).replace(/'/g, "\\'");
-      return `<button class="role-manage-btn" title="Gerenciar" onclick="event.stopPropagation(); openRoleModal('${safeName}', '${u.socketId}', '${u.role || 'guest'}')">⚙</button>`;
-    }
 
     let activeServerId = 'dspeak';
     let activeChannel = 'geral';
@@ -767,17 +710,6 @@
       setupStageDockAutoHide();
     }
 
-    // Item 4: só o Owner pode criar/alterar canais do servidor.
-    function applyRolePermissionsToUI() {
-      const canManageServer = myRole === 'owner';
-      const addTextBtn = document.getElementById('add-text-channel-btn');
-      const addVoiceBtn = document.getElementById('add-voice-channel-btn');
-      const serverHeaderBtn = document.getElementById('server-header-btn');
-      if (addTextBtn) addTextBtn.style.display = canManageServer ? 'inline' : 'none';
-      if (addVoiceBtn) addVoiceBtn.style.display = canManageServer ? 'inline' : 'none';
-      if (serverHeaderBtn) serverHeaderBtn.style.cursor = canManageServer ? 'pointer' : 'default';
-    }
-
     function logoutUser() {
       localStorage.removeItem('dspeak_username');
       localStorage.removeItem('dspeak_avatar');
@@ -795,8 +727,11 @@
         footerAvatar.style.backgroundImage = `url(${userAvatarUrl})`;
         userInitialSpan.style.display = 'none';
       } else {
-        footerAvatar.style.backgroundImage = 'none';
-        footerAvatar.style.background = getUserAvatarGradient(username);
+        // Usar backgroundImage (não o "background" resumido) é essencial aqui: o shorthand
+        // reseta background-size/background-position pra 'auto'/'0% 0%' de forma permanente
+        // nesse elemento, e essa quebra continuava mesmo depois de aplicar uma foto de verdade
+        // (a foto ficava "esticada"/cortada errado). Isso corrige a causa raiz.
+        footerAvatar.style.backgroundImage = getUserAvatarGradient(username);
         userInitialSpan.style.display = 'block';
         userInitialSpan.textContent = username.charAt(0).toUpperCase();
       }
@@ -1038,8 +973,9 @@
         preview.style.backgroundImage = `url(${tempAvatarUrl})`;
         initialSpan.style.display = 'none';
       } else {
-        preview.style.backgroundImage = 'none';
-        preview.style.background = getUserAvatarGradient(username);
+        // Mesmo motivo do footer: backgroundImage em vez do shorthand "background",
+        // pra não travar o background-size/position desse elemento permanentemente.
+        preview.style.backgroundImage = getUserAvatarGradient(username);
         initialSpan.style.display = 'block';
         initialSpan.textContent = username.charAt(0).toUpperCase();
       }
@@ -1077,10 +1013,6 @@
     }
 
     function openCreateChannel(type) {
-      if (myRole !== 'owner') {
-        showToast('Só o Owner pode criar ou alterar canais do servidor.');
-        return;
-      }
       document.getElementById('new-channel-type').value = type;
       document.getElementById('new-channel-name').value = '';
       openModal('channel-modal');
@@ -1102,10 +1034,6 @@
 
     function toggleServerMenu(e) {
       e.stopPropagation();
-      if (myRole !== 'owner') {
-        showToast('Só o Owner pode criar ou alterar canais do servidor.');
-        return;
-      }
       const menu = document.getElementById('server-menu');
       menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
     }
@@ -1180,10 +1108,6 @@
         div.innerHTML = `<div class="channel-info"><span>${isVoice ? '🔊' : '#'}</span><span>${ch.name}</span></div>`;
         
         div.onclick = () => {
-          if (myRole === 'guest' && ch.id !== WAITING_VOICE_ROOM && ch.id !== WAITING_TEXT_ROOM) {
-            showToast('Você está como Guest e precisa aguardar na Sala de Espera até um Moderador ou Owner liberar seu acesso.');
-            return;
-          }
           activeChannel = ch.id;
           document.getElementById('chat-header-title').textContent = `${isVoice ? '🔊' : '#'} ${ch.name}`;
           if (isVoice) connectVoice(ch);
@@ -1221,17 +1145,12 @@
                 }
               }
 
-              const roleBadge = roleBadgeHtml(u.role);
-              const manageBtn = roleManageBtnHtml(u, isSelf);
-
               sub.innerHTML = `
                 <div class="voice-user-left">
                   <div class="voice-user-avatar" style="${avatarStyle}">${initialText}</div>
                   <span class="voice-user-name">${u.name}</span>
-                  ${roleBadge}
                 </div>
                 <div style="display:flex; align-items:center; gap:6px;">
-                  ${manageBtn}
                   ${liveBadge}
                 </div>
               `;
@@ -1418,85 +1337,6 @@
       addScreenTracksToPeer(pc);
     });
 
-    // ---------- Item 4: gerenciar cargo de um usuário ----------
-    let roleModalTarget = { username: '', socketId: '', role: 'guest' };
-
-    function openRoleModal(targetUsername, targetSocketId, targetRole) {
-      roleModalTarget = { username: targetUsername, socketId: targetSocketId, role: targetRole };
-      document.getElementById('role-modal-username').textContent = targetUsername;
-      document.getElementById('role-modal-current-role').textContent = `Cargo atual: ${ROLE_LABELS[targetRole] || targetRole}`;
-
-      const optionsWrap = document.getElementById('role-modal-options');
-      optionsWrap.innerHTML = '';
-
-      if (myRole === 'owner') {
-        ['guest', 'member', 'moderator'].forEach(r => {
-          const btn = document.createElement('button');
-          btn.className = 'role-option-btn' + (r === targetRole ? ' current' : '');
-          btn.textContent = r === targetRole ? `✓ ${ROLE_LABELS[r]} (atual)` : `Tornar ${ROLE_LABELS[r]}`;
-          if (r !== targetRole) btn.onclick = () => giveRole(targetUsername, r);
-          optionsWrap.appendChild(btn);
-        });
-      } else if (myRole === 'moderator' && targetRole === 'guest') {
-        const btn = document.createElement('button');
-        btn.className = 'role-option-btn';
-        btn.textContent = `Tornar ${ROLE_LABELS.member}`;
-        btn.onclick = () => giveRole(targetUsername, 'member');
-        optionsWrap.appendChild(btn);
-      }
-
-      if ((myRole === 'owner' || myRole === 'moderator') && connectedVoiceChannel) {
-        const pullBtn = document.createElement('button');
-        pullBtn.className = 'role-pull-btn';
-        pullBtn.textContent = '⬇ Puxar para esta sala';
-        pullBtn.onclick = () => pullUserHere(targetSocketId);
-        optionsWrap.appendChild(pullBtn);
-      }
-
-      openModal('role-modal');
-    }
-
-    function giveRole(targetUsername, newRole) {
-      socket.emit('assign-role', { targetUsername, newRole });
-      closeModal('role-modal');
-    }
-
-    function pullUserHere(targetSocketId) {
-      if (!connectedVoiceChannel) return;
-      socket.emit('pull-user-to-room', { targetSocketId, channelId: connectedVoiceChannel });
-      closeModal('role-modal');
-    }
-
-    socket.on('your-role', (data) => {
-      const wasGuest = myRole === 'guest';
-      myRole = data.role;
-      applyRolePermissionsToUI();
-      if (myRole !== 'guest' && wasGuest) {
-        showToast(`Você agora é ${ROLE_LABELS[myRole] || myRole}! Já pode circular pelas salas.`);
-      }
-      renderChannels();
-      renderStageUsers();
-    });
-
-    socket.on('guest-locked', (data) => {
-      showToast(data.message);
-    });
-
-    socket.on('voice-room-redirect', (data) => {
-      const srv = servers.find(s => s.id === activeServerId);
-      const ch = srv ? srv.channels.find(c => c.id === data.channelId) : null;
-      connectedVoiceChannel = data.channelId;
-      document.getElementById('voice-status-channel-name').textContent = ch ? ch.name : data.channelId;
-      renderChannels();
-    });
-
-    socket.on('force-join-voice', (data) => {
-      const srv = servers.find(s => s.id === activeServerId);
-      const ch = (srv && srv.channels.find(c => c.id === data.channelId)) || { id: data.channelId, name: data.channelId };
-      showToast('Um Moderador/Owner te puxou para outra sala de voz.');
-      connectVoice(ch);
-    });
-
     function connectVoice(channel) {
       if (connectedVoiceChannel && connectedVoiceChannel !== channel.id) {
         socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
@@ -1581,15 +1421,10 @@
           }
         }
 
-        const roleBadge = roleBadgeHtml(u.role);
-        const manageBtn = roleManageBtnHtml(u, isSelf);
-
         card.innerHTML = `
           <div class="card-avatar" style="${avatarStyle}">${initialText}</div>
           <div class="card-name-pill">${u.name}</div>
-          ${roleBadge}
           ${liveBadge}
-          ${manageBtn}
         `;
         stage.appendChild(card);
       });
@@ -2026,11 +1861,6 @@
       const input = document.getElementById('input');
       if (!input.value.trim() || !activeChannel) return;
 
-      if (myRole === 'guest' && activeChannel !== WAITING_TEXT_ROOM) {
-        showToast('Você está como Guest e só pode conversar na Sala de Espera até ganhar um cargo.');
-        return;
-      }
-
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const dateStr = now.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -2090,7 +1920,6 @@
           <div class="chat-msg-body">
             <div class="chat-msg-header">
               <span class="chat-msg-author">${data.user}</span>
-              ${roleBadgeHtml(data.role)}
               <span class="chat-msg-time">${data.time || 'Agora'}</span>
             </div>
             <div class="chat-msg-text">${data.message}</div>
