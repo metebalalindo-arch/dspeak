@@ -22,9 +22,13 @@ const activeRoomStreams = {};
 // lista diferente e tudo sumia ao dar F5. Agora o servidor é a fonte da verdade: guarda
 // em disco e manda a mesma lista pra todo mundo, sempre atualizada.
 const CHANNELS_FILE = path.join(__dirname, 'channels.json');
+const WAITING_VOICE_ROOM = 'waiting-room';
+const WAITING_TEXT_ROOM = 'waiting-room-text';
 const DEFAULT_CHANNELS = [
   { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
-  { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
+  { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true },
+  { id: WAITING_TEXT_ROOM, name: 'sala-de-espera', type: 'text', undeletable: true, locked: true },
+  { id: WAITING_VOICE_ROOM, name: 'Sala de Espera', type: 'voice', undeletable: true, locked: true }
 ];
 
 let channels = DEFAULT_CHANNELS;
@@ -37,12 +41,85 @@ try {
   console.error('Não foi possível ler channels.json, usando os padrões.', e);
 }
 
+// Se o servidor já tinha um channels.json de antes (sem a Sala de Espera), acrescenta
+// os canais fixos que estiverem faltando, sem mexer no resto que já existia.
+DEFAULT_CHANNELS.forEach(defCh => {
+  if (!channels.some(c => c.id === defCh.id)) channels.push({ ...defCh });
+});
+
 function saveChannels() {
   try {
     fs.writeFileSync(CHANNELS_FILE, JSON.stringify(channels, null, 2));
   } catch (e) {
     console.error('Não foi possível salvar channels.json', e);
   }
+}
+saveChannels();
+
+// ---------- Cargos (Owner / Moderador / Membro / Guest) ----------
+// Guest é travado na Sala de Espera até um Moderador ou Owner dar um cargo a ele.
+// Pra virar Owner, a pessoa digita "!owner SEU_CODIGO" em qualquer chat — sem precisar
+// ser o primeiro a se cadastrar (isso causava confusão em testes: uma conta de teste
+// qualquer virava Owner sem querer).
+const ROLES_FILE = path.join(__dirname, 'roles.json');
+
+// IMPORTANTE: troque esse código (ou, melhor ainda, defina a variável de ambiente
+// OWNER_CLAIM_CODE no seu serviço de hospedagem) antes de divulgar o servidor —
+// quem souber o código digitado no chat vira Owner na hora.
+const OWNER_CLAIM_CODE = process.env.OWNER_CLAIM_CODE || '08&Das!\\75';
+if (!process.env.OWNER_CLAIM_CODE) {
+  console.log(`[DSpeak] Nenhuma variável de ambiente OWNER_CLAIM_CODE definida — usando o código padrão "${OWNER_CLAIM_CODE}". Recomendo definir a sua própria.`);
+}
+
+let roles = {}; // chave: username em minúsculas -> 'owner' | 'moderator' | 'member' | 'guest'
+try {
+  if (fs.existsSync(ROLES_FILE)) {
+    roles = JSON.parse(fs.readFileSync(ROLES_FILE, 'utf8'));
+  }
+} catch (e) {
+  console.error('Não foi possível ler roles.json, começando do zero.', e);
+  roles = {};
+}
+
+function saveRoles() {
+  try {
+    fs.writeFileSync(ROLES_FILE, JSON.stringify(roles, null, 2));
+  } catch (e) {
+    console.error('Não foi possível salvar roles.json', e);
+  }
+}
+
+function keyOf(username) {
+  return String(username || '').trim().toLowerCase();
+}
+
+// Retorna o cargo de um usuário, criando-o como 'guest' (padrão pra gente nova) na
+// primeira vez que aparece.
+function resolveRole(username) {
+  const key = keyOf(username);
+  if (!key) return 'guest';
+  if (roles[key]) return roles[key];
+  roles[key] = 'guest';
+  saveRoles();
+  return 'guest';
+}
+
+function findSocketsByUsername(username) {
+  const key = keyOf(username);
+  const found = [];
+  for (const [, s] of io.sockets.sockets) {
+    if (s.usernameKey === key) found.push(s);
+  }
+  return found;
+}
+
+// Atualiza o campo "role" de um usuário em todas as listas de voz que ele estiver.
+function syncRoleIntoVoiceLists(usernameKey, newRole) {
+  Object.keys(voiceUsers).forEach(channelId => {
+    voiceUsers[channelId] = voiceUsers[channelId].map(u =>
+      keyOf(u.name) === usernameKey ? { ...u, role: newRole } : u
+    );
+  });
 }
 
 // ---------- Histórico de chat persistido, com expiração de 7 dias ----------
@@ -87,6 +164,11 @@ io.on('connection', (socket) => {
   socket.on('register-user', (data) => {
     socket.username = data.username;
     socket.avatarUrl = data.avatarUrl;
+    socket.usernameKey = keyOf(data.username);
+
+    const role = resolveRole(data.username);
+    socket.role = role;
+    socket.emit('your-role', { role, username: data.username });
 
     // Manda pro cliente que acabou de entrar o retrato atual de quem já está
     // conectado nas salas de voz. Sem isso, ele só ficava sabendo quando alguém
@@ -115,6 +197,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join-room', (roomId) => {
+    // Guest só pode acompanhar o texto da sala de espera.
+    if (socket.role === 'guest' && roomId !== WAITING_TEXT_ROOM) return;
     socket.join(roomId);
   });
 
@@ -140,7 +224,31 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat-message', (data) => {
-    const entry = { ...data, timestamp: Date.now() };
+    // Comando secreto pra virar Owner: "!owner SEU_CODIGO". Nunca é salvo no
+    // histórico nem retransmitido pro chat — só o autor recebe a confirmação —
+    // assim o código não fica exposto pra quem ler o chat depois.
+    const claimMatch = /^!owner\s+(.+)$/i.exec(String(data.message || '').trim());
+    if (claimMatch) {
+      if (claimMatch[1].trim() === OWNER_CLAIM_CODE) {
+        const key = socket.usernameKey;
+        if (key) {
+          roles[key] = 'owner';
+          saveRoles();
+          socket.role = 'owner';
+          syncRoleIntoVoiceLists(key, 'owner');
+          io.emit('update-voice-users', voiceUsers);
+          socket.emit('your-role', { role: 'owner', username: socket.username });
+        }
+      } else {
+        socket.emit('owner-claim-failed');
+      }
+      return; // nunca vira mensagem de chat de verdade
+    }
+
+    // Guest só pode falar na sala de espera.
+    if (socket.role === 'guest' && data.room !== WAITING_TEXT_ROOM) return;
+
+    const entry = { ...data, role: socket.role, timestamp: Date.now() };
     if (!messages[data.room]) messages[data.room] = [];
     messages[data.room].push(entry);
     pruneChannelMessages(data.room);
@@ -156,8 +264,9 @@ io.on('connection', (socket) => {
     socket.emit('channel-history', { room: channelId, messages: messages[channelId] || [] });
   });
 
-  // ---------- Criar / renomear / excluir canais (compartilhado com todo mundo) ----------
+  // ---------- Criar / renomear / excluir canais (só o Owner pode) ----------
   socket.on('create-channel', (data) => {
+    if (socket.role !== 'owner') return;
     const name = String(data && data.name || '').trim();
     const type = data && data.type;
     if (!name || (type !== 'text' && type !== 'voice')) return;
@@ -176,6 +285,7 @@ io.on('connection', (socket) => {
 
   // Renomeia e/ou ajusta limite de pessoas e "sala silenciosa" de um canal.
   socket.on('rename-channel', (data) => {
+    if (socket.role !== 'owner') return;
     const channelId = data && data.channelId;
     const ch = channels.find(c => c.id === channelId);
     if (!ch) return;
@@ -198,6 +308,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('delete-channel', (channelId) => {
+    if (socket.role !== 'owner') return;
     const ch = channels.find(c => c.id === channelId);
     if (!ch || ch.undeletable) return; // "geral" e "Lobby" nunca podem ser excluídos
     if (channels.length <= 1) return;
@@ -209,8 +320,59 @@ io.on('connection', (socket) => {
     io.emit('channels-sync', channels);
   });
 
+  // ---------- Gestão de cargos ----------
+  // Owner: pode dar qualquer cargo (guest / member / moderator) a qualquer um.
+  // Moderador: só pode promover Guest -> Membro.
+  socket.on('assign-role', (data) => {
+    const targetUsername = data && data.targetUsername;
+    const newRole = data && data.newRole;
+    const validRoles = ['guest', 'member', 'moderator'];
+    if (!validRoles.includes(newRole)) return;
+
+    const targetKey = keyOf(targetUsername);
+    if (!targetKey) return;
+    const currentTargetRole = roles[targetKey] || 'guest';
+
+    const isOwner = socket.role === 'owner';
+    const isModPromotingGuestToMember =
+      socket.role === 'moderator' && newRole === 'member' && currentTargetRole === 'guest';
+
+    if (!isOwner && !isModPromotingGuestToMember) return;
+    if (currentTargetRole === 'owner') return; // ninguém rebaixa o Owner por aqui
+
+    roles[targetKey] = newRole;
+    saveRoles();
+    syncRoleIntoVoiceLists(targetKey, newRole);
+    io.emit('update-voice-users', voiceUsers);
+
+    findSocketsByUsername(targetUsername).forEach(s => {
+      s.role = newRole;
+      s.emit('your-role', { role: newRole, username: s.username });
+    });
+  });
+
+  // Owner/Moderador "puxam" alguém pra sala de voz em que estão agora.
+  socket.on('pull-user-to-room', (data) => {
+    if (socket.role !== 'owner' && socket.role !== 'moderator') return;
+    const targetSocketId = data && data.targetSocketId;
+    const channelId = data && data.channelId;
+    const targetSocket = io.sockets.sockets.get(targetSocketId);
+    if (targetSocket) {
+      targetSocket.emit('force-join-voice', { channelId });
+    }
+  });
+
   socket.on('join-voice-room', (data) => {
-    const { channelId, username, avatarUrl } = data;
+    let { channelId, username, avatarUrl } = data;
+
+    // Guest é travado na sala de espera até alguém dar um cargo a ele.
+    if (socket.role === 'guest' && channelId !== WAITING_VOICE_ROOM) {
+      channelId = WAITING_VOICE_ROOM;
+      socket.emit('guest-locked', {
+        message: 'Você está como Guest e precisa aguardar na Sala de Espera até um Moderador ou Owner liberar seu acesso.'
+      });
+    }
+
     if (!voiceUsers[channelId]) voiceUsers[channelId] = [];
 
     const alreadyThere = voiceUsers[channelId].some(u => u.socketId === socket.id);
@@ -228,12 +390,18 @@ io.on('connection', (socket) => {
       name: username,
       avatarUrl,
       muted: !!socket.currentMuted,
-      deafened: !!socket.currentDeafened
+      deafened: !!socket.currentDeafened,
+      role: socket.role
     });
 
     socket.currentVoiceChannel = channelId;
     socket.join(channelId);
     io.emit('update-voice-users', voiceUsers);
+
+    // Se o cliente foi redirecionado à força pra sala de espera, avisa qual sala ele realmente entrou.
+    if (channelId !== data.channelId) {
+      socket.emit('voice-room-redirect', { channelId });
+    }
 
     // Sincroniza transmissões ativas para quem acabou de entrar ou atualizar a página
     if (activeRoomStreams[channelId] && activeRoomStreams[channelId].length > 0) {
