@@ -65,6 +65,14 @@
     .add-channel-btn { cursor: pointer; font-size: 18px; color: #8a8f9d; transition: color 0.15s; padding: 0 6px; font-weight: bold; }
     .add-channel-btn:hover { color: #ff5500; }
 
+    .channel-right-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .channel-unread-badge { background: #ff3333; color: #fff; font-size: 9px; font-weight: 800; min-width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px; box-shadow: 0 0 8px rgba(255, 51, 51, 0.7); flex-shrink: 0; }
+    .channel-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.15s; flex-shrink: 0; }
+    .channel:hover .channel-actions { opacity: 1; }
+    .channel-action-btn { background: transparent; border: none; color: #8a8f9d; cursor: pointer; font-size: 12px; width: 20px; height: 20px; border-radius: 5px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .channel-action-btn:hover { color: #fff; background: rgba(255, 85, 0, 0.25); }
+    .channel-action-btn.delete:hover { background: rgba(255, 51, 51, 0.25); color: #ff3333; }
+
     .channel-list { display: flex; flex-direction: column; gap: 3px; padding: 0 6px; flex-shrink: 0; }
     .channel-wrapper { display: flex; flex-direction: column; position: relative; }
     .channel { padding: 8px 10px; border-radius: 8px; color: #8a8f9d; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; position: relative; margin: 0 4px; transition: all 0.15s; border: 1px solid transparent; }
@@ -561,6 +569,23 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="rename-channel-modal">
+    <div class="modal" style="width: 340px;">
+      <button class="modal-close-btn" onclick="closeModal('rename-channel-modal')">✕</button>
+      <div class="modal-header-center">
+        <h2>Renomear Canal</h2>
+      </div>
+      <div class="modal-field">
+        <label>Novo Nome</label>
+        <input type="text" id="rename-channel-input" placeholder="novo-nome" onkeypress="if(event.key==='Enter') confirmRenameChannel()" />
+      </div>
+      <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
+        <button class="btn-cancel" onclick="closeModal('rename-channel-modal')">Cancelar</button>
+        <button class="btn-create" onclick="confirmRenameChannel()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="main">
     <div id="chat-header">
       <div class="dm-header-left">
@@ -1044,6 +1069,77 @@
       closeModal('channel-modal');
     }
 
+    // ---------- Editar / excluir canais ----------
+    let renameChannelTargetId = null;
+
+    function openRenameChannel(channelId) {
+      const srv = servers.find(s => s.id === activeServerId);
+      const ch = srv && srv.channels.find(c => c.id === channelId);
+      if (!ch) return;
+      renameChannelTargetId = channelId;
+      document.getElementById('rename-channel-input').value = ch.name;
+      openModal('rename-channel-modal');
+    }
+
+    function confirmRenameChannel() {
+      const newName = document.getElementById('rename-channel-input').value.trim();
+      if (!newName || !renameChannelTargetId) { closeModal('rename-channel-modal'); return; }
+
+      const srv = servers.find(s => s.id === activeServerId);
+      const ch = srv && srv.channels.find(c => c.id === renameChannelTargetId);
+      if (ch) {
+        ch.name = newName;
+        if (activeChannel === ch.id) {
+          document.getElementById('chat-header-title').textContent = `${ch.type === 'voice' ? '🔊' : '#'} ${ch.name}`;
+        }
+        if (connectedVoiceChannel === ch.id) {
+          document.getElementById('voice-status-channel-name').textContent = ch.name;
+        }
+        renderChannels();
+      }
+      renameChannelTargetId = null;
+      closeModal('rename-channel-modal');
+    }
+
+    function deleteChannel(channelId) {
+      const srv = servers.find(s => s.id === activeServerId);
+      if (!srv) return;
+      const ch = srv.channels.find(c => c.id === channelId);
+      if (!ch) return;
+
+      if (srv.channels.length <= 1) {
+        alert('Não é possível excluir o último canal do servidor.');
+        return;
+      }
+      if (!confirm(`Tem certeza que deseja excluir "${ch.name}"? Essa ação não pode ser desfeita.`)) return;
+
+      if (connectedVoiceChannel === channelId) disconnectVoice();
+
+      srv.channels = srv.channels.filter(c => c.id !== channelId);
+      delete unreadCounts[channelId];
+
+      if (activeChannel === channelId) {
+        const fallback = srv.channels.find(c => c.type === 'text') || srv.channels[0];
+        if (fallback) {
+          activeChannel = fallback.id;
+          document.getElementById('chat-header-title').textContent = `${fallback.type === 'voice' ? '🔊' : '#'} ${fallback.name}`;
+          socket.emit('join-room', fallback.id);
+        }
+      }
+      renderChannels();
+    }
+
+    // ---------- Notificação de mensagem não lida ----------
+    let unreadCounts = {};
+
+    function unreadBadgeHtml(ch) {
+      if (ch.type !== 'text') return '';
+      const count = unreadCounts[ch.id] || 0;
+      if (count <= 0) return '';
+      const label = count > 9 ? '9+' : String(count);
+      return `<span class="channel-unread-badge">${label}</span>`;
+    }
+
     function toggleServerMenu(e) {
       e.stopPropagation();
       const menu = document.getElementById('server-menu');
@@ -1120,10 +1216,20 @@
         const isVoice = ch.type === 'voice';
         const div = document.createElement('div');
         div.className = `channel ${ch.id === activeChannel ? 'active' : ''}`;
-        div.innerHTML = `<div class="channel-info"><span>${isVoice ? '🔊' : '#'}</span><span>${ch.name}</span></div>`;
+        div.innerHTML = `
+          <div class="channel-info"><span>${isVoice ? '🔊' : '#'}</span><span>${ch.name}</span></div>
+          <div class="channel-right-controls">
+            ${unreadBadgeHtml(ch)}
+            <div class="channel-actions">
+              <button class="channel-action-btn" title="Renomear canal" onclick="event.stopPropagation(); openRenameChannel('${ch.id}')">✏️</button>
+              <button class="channel-action-btn delete" title="Excluir canal" onclick="event.stopPropagation(); deleteChannel('${ch.id}')">🗑</button>
+            </div>
+          </div>
+        `;
         
         div.onclick = () => {
           activeChannel = ch.id;
+          if (!isVoice) unreadCounts[ch.id] = 0;
           document.getElementById('chat-header-title').textContent = `${isVoice ? '🔊' : '#'} ${ch.name}`;
           if (isVoice) connectVoice(ch);
           socket.emit('join-room', ch.id);
@@ -1942,6 +2048,11 @@
         `;
         chatList.appendChild(div);
         chatList.scrollTop = chatList.scrollHeight;
+      } else if (data.user !== username) {
+        // Mensagem chegou de outro canal: acende o badge vermelho ali, sem interromper
+        // quem está lendo o canal atual.
+        unreadCounts[data.room] = (unreadCounts[data.room] || 0) + 1;
+        renderChannels();
       }
     });
   </script>
