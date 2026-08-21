@@ -118,6 +118,21 @@ io.on('connection', (socket) => {
     socket.join(roomId);
   });
 
+  // Avisa todo mundo quando alguém muta/desmuta ou ensurdece/desensurdece, pra
+  // aparecer o iconezinho certo no avatar dessa pessoa pros outros também.
+  socket.on('update-voice-status', (data) => {
+    const muted = !!(data && data.muted);
+    const deafened = !!(data && data.deafened);
+    socket.currentMuted = muted;
+    socket.currentDeafened = deafened;
+    Object.keys(voiceUsers).forEach(channelId => {
+      voiceUsers[channelId] = voiceUsers[channelId].map(u =>
+        u.socketId === socket.id ? { ...u, muted, deafened } : u
+      );
+    });
+    io.emit('update-voice-users', voiceUsers);
+  });
+
   // Eco simples para medição de ping real (RTT) de cada cliente.
   // O cliente manda o timestamp e recebe de volta via callback (ack) do socket.io.
   socket.on('ping-check', (clientTime, callback) => {
@@ -183,7 +198,13 @@ io.on('connection', (socket) => {
     if (!voiceUsers[channelId]) voiceUsers[channelId] = [];
 
     voiceUsers[channelId] = voiceUsers[channelId].filter(u => u.socketId !== socket.id);
-    voiceUsers[channelId].push({ socketId: socket.id, name: username, avatarUrl });
+    voiceUsers[channelId].push({
+      socketId: socket.id,
+      name: username,
+      avatarUrl,
+      muted: !!socket.currentMuted,
+      deafened: !!socket.currentDeafened
+    });
 
     socket.currentVoiceChannel = channelId;
     socket.join(channelId);
