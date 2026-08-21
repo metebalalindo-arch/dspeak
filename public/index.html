@@ -211,7 +211,7 @@
     .stream-fullscreen-btn:hover { background: #ff5500; }
     .stream-fullscreen-btn svg { width: 16px; height: 16px; stroke: #fff; stroke-width: 2; fill: none; }
 
-    /* Grid de Voz (Movida para baixo e compactada para dar espaço às lives) */
+    /* Grid de Voz (Movida para baixo e compactada) */
     .connected-users-stage { display: flex; flex-wrap: wrap; gap: 8px; align-content: center; justify-content: center; overflow-y: auto; max-height: 130px; padding: 4px; flex-shrink: 0; }
 
     .user-card { width: 90px; height: 90px; border-radius: 12px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.6); gap: 4px; }
@@ -333,7 +333,7 @@
           <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
         </button>
         <button class="grid-btn" id="settings-btn" title="Central de Configurações" onclick="openSettingsModal('profile')">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
       </div>
 
@@ -574,7 +574,7 @@
             </button>
 
             <button class="stage-btn" id="stage-quality-btn" onclick="openSettingsModal('stream')" title="Ajustar Qualidade da Transmissão" style="display: none;">
-              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l-.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
             </button>
           </div>
         </div>
@@ -1128,6 +1128,7 @@
         });
         
         addScreenStream(username, localStream);
+        socket.emit('start-streaming', connectedVoiceChannel);
 
         const shareBtn = document.getElementById('stage-share-btn');
         shareBtn.classList.add('active-share');
@@ -1135,10 +1136,18 @@
 
         document.getElementById('stage-quality-btn').style.display = 'flex';
 
+        // Garante conexão bidirecional com todos na sala de voz utilizando socketId ordenado
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
         usersInChannel.forEach(u => {
           if (u.socketId !== socket.id) {
-            createPeerConnection(u.socketId, true);
+            const isInitiator = socket.id > u.socketId;
+            const pc = createPeerConnection(u.socketId);
+            if (isInitiator) {
+              localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+              pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+                socket.emit('webrtc-offer', { targetSocketId: u.socketId, offer: pc.localDescription });
+              }).catch(err => console.error("Erro no offer:", err));
+            }
           }
         });
 
@@ -1149,6 +1158,9 @@
     function stopScreenShare() {
       if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
       removeScreenStream(username);
+      if (connectedVoiceChannel) {
+        socket.emit('stop-streaming', connectedVoiceChannel);
+      }
 
       Object.keys(peerConnections).forEach(socketId => {
         peerConnections[socketId].close();
@@ -1162,12 +1174,13 @@
       document.getElementById('stage-quality-btn').style.display = 'none';
     }
 
-    function createPeerConnection(targetSocketId, isInitiator) {
+    function createPeerConnection(targetSocketId) {
       if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
 
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnections[targetSocketId] = pc;
 
+      // Se já estiver transmitindo, adiciona os tracks à nova conexão
       if (localStream) {
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       }
@@ -1185,18 +1198,17 @@
         }
       };
 
-      if (isInitiator) {
-        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
-          socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
-        }).catch(err => console.error("Erro no offer:", err));
-      }
-
       return pc;
     }
 
     socket.on('webrtc-offer', async (data) => {
-      const pc = createPeerConnection(data.senderSocketId, false);
+      const pc = createPeerConnection(data.senderSocketId);
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      
+      if (localStream && !pc.getSenders().length) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
+
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer });
@@ -1204,12 +1216,57 @@
 
     socket.on('webrtc-answer', async (data) => {
       const pc = peerConnections[data.senderSocketId];
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      }
     });
 
     socket.on('webrtc-candidate', async (data) => {
       const pc = peerConnections[data.senderSocketId];
-      if (pc) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      if (pc) {
+        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      }
+    });
+
+    // Sincronização automática de transmissões para quem entra ou atualiza a página
+    socket.on('sync-active-streams', (streamingSocketIds) => {
+      streamingSocketIds.forEach(targetSocketId => {
+        if (!peerConnections[targetSocketId]) {
+          const isInitiator = socket.id > targetSocketId;
+          const pc = createPeerConnection(targetSocketId);
+          if (isInitiator && localStream) {
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+              socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
+            });
+          }
+        }
+      });
+    });
+
+    socket.on('user-started-streaming', (targetSocketId) => {
+      if (!peerConnections[targetSocketId]) {
+        const isInitiator = socket.id > targetSocketId;
+        const pc = createPeerConnection(targetSocketId);
+        if (isInitiator && localStream) {
+          localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+          pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+            socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
+          });
+        }
+      }
+    });
+
+    socket.on('user-stopped-streaming', (targetSocketId) => {
+      if (peerConnections[targetSocketId]) {
+        peerConnections[targetSocketId].close();
+        delete peerConnections[targetSocketId];
+      }
+      const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+      const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
+      if (targetUser) {
+        removeScreenStream(targetUser.name);
+      }
     });
 
     function addScreenStream(user, stream) {
@@ -1299,7 +1356,28 @@
     let lastRenderedDate = "";
 
     socket.on('update-users-list', (users) => { connectedUsersList = users; });
-    socket.on('update-voice-users', (data) => { voiceChannelUsers = data; renderChannels(); renderStageUsers(); });
+    socket.on('update-voice-users', (data) => { 
+      voiceChannelUsers = data; 
+      renderChannels(); 
+      renderStageUsers();
+
+      // Sincroniza conexões com novos usuários que entrarem na sala
+      if (connectedVoiceChannel) {
+        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+        usersInChannel.forEach(u => {
+          if (u.socketId !== socket.id && !peerConnections[u.socketId]) {
+            const isInitiator = socket.id > u.socketId;
+            const pc = createPeerConnection(u.socketId);
+            if (isInitiator && localStream) {
+              localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+              pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+                socket.emit('webrtc-offer', { targetSocketId: u.socketId, offer: pc.localDescription });
+              });
+            }
+          }
+        });
+      }
+    });
 
     socket.on('chat-message', (data) => {
       if (data.room === activeChannel) {
