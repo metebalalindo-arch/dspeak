@@ -214,7 +214,30 @@
     .card-avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 13px; background-size: cover; background-position: center; border: 2px solid #ff5500; }
     .card-name-pill { font-size: 10px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 80px; text-align: center; }
 
-    .stage-controls-dock { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(19, 21, 27, 0.92); backdrop-filter: blur(12px); border-radius: 18px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; z-index: 300; border: 1px solid rgba(255, 85, 0, 0.35); box-shadow: 0 12px 35px rgba(0,0,0,0.9), 0 0 20px rgba(255,85,0,0.25); }
+    .stage-controls-dock { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(19, 21, 27, 0.92); backdrop-filter: blur(12px); border-radius: 18px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; z-index: 300; border: 1px solid rgba(255, 85, 0, 0.35); box-shadow: 0 12px 35px rgba(0,0,0,0.9), 0 0 20px rgba(255,85,0,0.25); opacity: 1; transition: opacity 0.25s ease, transform 0.25s ease; }
+    .stage-controls-dock.dock-hidden { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
+
+    /* Item 6: badge "AO VIVO" clicável para assistir sob demanda, como no Discord */
+    .watch-live-btn {
+      background: #ff3333; color: #fff; font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px;
+      text-transform: uppercase; letter-spacing: 0.4px; box-shadow: 0 0 8px rgba(255, 51, 51, 0.6); border: none;
+      cursor: pointer; flex-shrink: 0; animation: pulse-live 1.5s infinite; display: inline-flex; align-items: center; gap: 3px;
+    }
+    .watch-live-btn:hover { background: #ff5555; transform: scale(1.04); }
+
+    /* Item 7: borda laranja quando o usuário está falando */
+    .user-card.speaking { border-color: #ff5500; box-shadow: 0 0 0 2px #ff5500, 0 0 18px rgba(255, 85, 0, 0.7); }
+    .voice-user-item.speaking { border: 1px solid #ff5500; box-shadow: 0 0 10px rgba(255, 85, 0, 0.45); background: rgba(255, 85, 0, 0.08); }
+    .voice-user-item { border: 1px solid transparent; }
+
+    /* Item 2: ping por usuário */
+    .user-ping-badge { font-size: 9px; font-weight: 700; color: #00ffcc; white-space: nowrap; flex-shrink: 0; opacity: 0.85; }
+
+    /* Item 4: recorte/ajuste da foto de perfil */
+    .crop-viewport { width: 260px; height: 260px; margin: 4px auto 0; border-radius: 50%; overflow: hidden; position: relative; background: #0c0d10; border: 2px solid #ff5500; cursor: grab; touch-action: none; box-shadow: 0 0 20px rgba(255,85,0,0.3); }
+    .crop-viewport:active { cursor: grabbing; }
+    .crop-viewport img { position: absolute; top: 0; left: 0; transform-origin: 0 0; user-select: none; pointer-events: none; }
+    .crop-hint { text-align: center; font-size: 11px; color: #8a8f9d; margin-top: 10px; }
     .stage-btn { width: 44px; height: 44px; border-radius: 12px; background: #1c202d; border: 1px solid rgba(255,255,255,0.06); color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
     .stage-btn svg { width: 20px; height: 20px; stroke: #ffffff; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
     .stage-btn:hover { background: #ff5500; border-color: #ff5500; box-shadow: 0 0 12px rgba(255, 85, 0, 0.6); }
@@ -303,7 +326,7 @@
           </span>
           <div style="display: flex; align-items: center; gap: 8px;">
             <span class="voice-status-channel" id="voice-status-channel-name">Lobby</span>
-            <div class="ping-wrapper"><span class="ping-icon"></span><span>8 ms</span></div>
+            <div class="ping-wrapper"><span class="ping-icon"></span><span id="self-ping-value">-- ms</span></div>
           </div>
         </div>
         <button class="btn-disconnect-voice" onclick="disconnectVoice(event)" title="Desconectar">
@@ -317,7 +340,7 @@
         </button>
         
         <button class="grid-btn" id="deafen-btn" title="Ensurdecer" disabled onclick="toggleDeafen()">
-          <svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2H3z"/></svg>
+          <svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="2" y="15" width="5" height="6" rx="2"/><rect x="17" y="15" width="5" height="6" rx="2"/></svg>
         </button>
         
         <button class="grid-btn" id="share-btn" title="Transmitir Tela" disabled onclick="toggleScreenShare()">
@@ -398,12 +421,12 @@
 
             <div class="modal-field">
               <label>Dispositivo de Entrada (Microfone)</label>
-              <select id="select-audio-input" onchange="startMicTest()"><option>Buscando dispositivos...</option></select>
+              <select id="select-audio-input" onchange="onMicDeviceChange()"><option>Buscando dispositivos...</option></select>
             </div>
 
             <div class="modal-field">
               <label>Dispositivo de Saída (Alto-Falantes / Fones)</label>
-              <select id="select-audio-output"><option>Buscando dispositivos...</option></select>
+              <select id="select-audio-output" onchange="onSpeakerDeviceChange()"><option>Buscando dispositivos...</option></select>
             </div>
 
             <div class="opt-sec-label">MODO DE TRANSMISSÃO</div>
@@ -483,6 +506,25 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="avatar-crop-modal">
+    <div class="modal" style="width: 340px;">
+      <button class="modal-close-btn" onclick="closeModal('avatar-crop-modal')">✕</button>
+      <div class="modal-header-center">
+        <h2>Ajustar Foto</h2>
+        <p>Arraste e use o zoom para moldar do jeito que quiser.</p>
+      </div>
+      <div class="crop-viewport" id="crop-viewport">
+        <img id="crop-image" draggable="false" alt="Prévia da foto" />
+      </div>
+      <input type="range" id="crop-zoom-slider" min="100" max="300" value="100" oninput="updateCropTransform()" style="width:100%;margin-top:16px;accent-color:#ff5500;" />
+      <div class="crop-hint">Zoom</div>
+      <div class="settings-footer-bar" style="padding: 14px 0 0 0; background: none; border: none;">
+        <button class="btn-cancel" onclick="closeModal('avatar-crop-modal')">Cancelar</button>
+        <button class="btn-create" onclick="confirmAvatarCrop()">Aplicar Foto</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="channel-modal">
     <div class="modal">
       <button class="modal-close-btn" onclick="closeModal('channel-modal')">✕</button>
@@ -546,7 +588,7 @@
             </button>
             
             <button class="stage-btn" id="stage-deafen-btn" onclick="toggleDeafen()" title="Ensurdecer Áudio">
-              <svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2H3z"/></svg>
+              <svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="2" y="15" width="5" height="6" rx="2"/><rect x="17" y="15" width="5" height="6" rx="2"/></svg>
             </button>
             
             <button class="stage-btn" id="stage-share-btn" onclick="toggleScreenShare()" title="Transmitir Tela">
@@ -615,6 +657,31 @@
     let peerConnections = {};
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
+    // --- Item 3: microfone/áudio de voz real ---
+    let localMicStream = null;
+    let micSenders = {};      // socketId -> RTCRtpSender do áudio do microfone
+    let peerAudioEls = {};    // socketId -> elemento <audio> escondido tocando a voz remota
+    let selectedMicId = "";
+    let selectedSpeakerId = "";
+
+    // --- Item 2: ping real ---
+    let currentPingMs = null;
+    let peerPings = {};       // socketId -> ping em ms
+
+    // --- Item 6: live sob demanda (clicar em "Assistir") ---
+    let liveStreamers = {};   // socketId -> nome de quem está transmitindo no canal atual
+    let watchedStreams = {};  // socketId -> true quando já clicamos em "Assistir"
+
+    // --- Item 7: detecção de fala (borda laranja) ---
+    let speakingState = {};   // socketId -> bool
+    let speakingRafIds = {};  // socketId -> requestAnimationFrame id
+    const SPEAKING_THRESHOLD = 14;
+
+    // --- Item 4: recorte de avatar ---
+    const CROP_SIZE = 260;
+    const AVATAR_OUTPUT_SIZE = 256;
+    let cropState = { scale: 1, baseScale: 1, offsetX: 0, offsetY: 0, dragging: false, lastX: 0, lastY: 0, naturalW: 0, naturalH: 0 };
+
     window.addEventListener('DOMContentLoaded', () => {
       const savedUser = localStorage.getItem('dspeak_username');
       const savedAvatar = localStorage.getItem('dspeak_avatar');
@@ -645,6 +712,8 @@
       renderServers();
       switchServer('dspeak');
       fetchAudioDevices();
+      startPingLoop();
+      setupStageDockAutoHide();
     }
 
     function logoutUser() {
@@ -779,18 +848,121 @@
       } catch (e) { console.error("Erro ao carregar periféricos:", e); }
     }
 
+    // Item 3: troca de microfone em tempo real (também durante uma call ativa)
+    async function onMicDeviceChange() {
+      selectedMicId = document.getElementById('select-audio-input').value;
+      startMicTest();
+      if (connectedVoiceChannel) await restartLocalMic();
+    }
+
+    // Item 3: troca de saída de áudio (alto-falante/fone) em tempo real
+    function onSpeakerDeviceChange() {
+      selectedSpeakerId = document.getElementById('select-audio-output').value;
+      applySinkToAll();
+    }
+
+    function applySinkToAll() {
+      const apply = (el) => { if (el && el.setSinkId) el.setSinkId(selectedSpeakerId).catch(() => {}); };
+      Object.values(peerAudioEls).forEach(apply);
+      document.querySelectorAll('#streams-container video').forEach(apply);
+    }
+
     function triggerAvatarUpload() { document.getElementById('avatar-file-input').click(); }
 
+    // Item 4: agora, ao escolher a foto, abrimos o editor de recorte em vez de aplicar direto
     function handleAvatarFileSelect(e) {
       const file = e.target.files[0];
       if (file) {
         const reader = new FileReader();
         reader.onload = function(evt) {
-          tempAvatarUrl = evt.target.result;
-          updateModalAvatarPreview();
+          openAvatarCropModal(evt.target.result);
         };
         reader.readAsDataURL(file);
       }
+      e.target.value = '';
+    }
+
+    function openAvatarCropModal(dataUrl) {
+      const imgEl = document.getElementById('crop-image');
+      imgEl.onload = () => {
+        cropState.naturalW = imgEl.naturalWidth;
+        cropState.naturalH = imgEl.naturalHeight;
+        cropState.baseScale = CROP_SIZE / Math.min(cropState.naturalW, cropState.naturalH);
+        cropState.scale = cropState.baseScale;
+        cropState.offsetX = (CROP_SIZE - cropState.naturalW * cropState.scale) / 2;
+        cropState.offsetY = (CROP_SIZE - cropState.naturalH * cropState.scale) / 2;
+        document.getElementById('crop-zoom-slider').value = 100;
+        applyCropTransform();
+      };
+      imgEl.src = dataUrl;
+      openModal('avatar-crop-modal');
+      setupCropDrag();
+    }
+
+    function clampCropOffset() {
+      const w = cropState.naturalW * cropState.scale;
+      const h = cropState.naturalH * cropState.scale;
+      const minX = CROP_SIZE - w, maxX = 0;
+      const minY = CROP_SIZE - h, maxY = 0;
+      cropState.offsetX = Math.min(maxX, Math.max(minX, cropState.offsetX));
+      cropState.offsetY = Math.min(maxY, Math.max(minY, cropState.offsetY));
+    }
+
+    function applyCropTransform() {
+      const imgEl = document.getElementById('crop-image');
+      imgEl.style.width = (cropState.naturalW * cropState.scale) + 'px';
+      imgEl.style.height = (cropState.naturalH * cropState.scale) + 'px';
+      imgEl.style.transform = `translate(${cropState.offsetX}px, ${cropState.offsetY}px)`;
+    }
+
+    function updateCropTransform() {
+      const zoomPct = parseInt(document.getElementById('crop-zoom-slider').value, 10);
+      const newScale = cropState.baseScale * (zoomPct / 100);
+      const cx = CROP_SIZE / 2, cy = CROP_SIZE / 2;
+      const imgCx = (cx - cropState.offsetX) / cropState.scale;
+      const imgCy = (cy - cropState.offsetY) / cropState.scale;
+      cropState.scale = newScale;
+      cropState.offsetX = cx - imgCx * newScale;
+      cropState.offsetY = cy - imgCy * newScale;
+      clampCropOffset();
+      applyCropTransform();
+    }
+
+    function setupCropDrag() {
+      const vp = document.getElementById('crop-viewport');
+      vp.onpointerdown = (e) => {
+        cropState.dragging = true;
+        cropState.lastX = e.clientX; cropState.lastY = e.clientY;
+        vp.setPointerCapture(e.pointerId);
+      };
+      vp.onpointermove = (e) => {
+        if (!cropState.dragging) return;
+        const dx = e.clientX - cropState.lastX;
+        const dy = e.clientY - cropState.lastY;
+        cropState.lastX = e.clientX; cropState.lastY = e.clientY;
+        cropState.offsetX += dx; cropState.offsetY += dy;
+        clampCropOffset();
+        applyCropTransform();
+      };
+      vp.onpointerup = () => { cropState.dragging = false; };
+      vp.onpointerleave = () => { cropState.dragging = false; };
+    }
+
+    function confirmAvatarCrop() {
+      const canvas = document.createElement('canvas');
+      canvas.width = AVATAR_OUTPUT_SIZE; canvas.height = AVATAR_OUTPUT_SIZE;
+      const ctx = canvas.getContext('2d');
+      const ratio = AVATAR_OUTPUT_SIZE / CROP_SIZE;
+      const imgEl = document.getElementById('crop-image');
+      ctx.drawImage(
+        imgEl,
+        0, 0, cropState.naturalW, cropState.naturalH,
+        cropState.offsetX * ratio, cropState.offsetY * ratio,
+        cropState.naturalW * cropState.scale * ratio, cropState.naturalH * cropState.scale * ratio
+      );
+      tempAvatarUrl = canvas.toDataURL('image/jpeg', 0.9);
+      updateModalAvatarPreview();
+      closeModal('avatar-crop-modal');
     }
 
     function updateModalAvatarPreview() {
@@ -975,21 +1147,37 @@
             usersInChannel.forEach(u => {
               const sub = document.createElement('div');
               sub.className = 'voice-user-item';
+              sub.dataset.socketId = u.socketId || '';
+              if (speakingState[u.socketId]) sub.classList.add('speaking');
               
               const avatarStyle = u.avatarUrl 
                 ? `background-image: url(${u.avatarUrl});` 
                 : `background: ${getUserAvatarGradient(u.name)};`;
               const initialText = u.avatarUrl ? '' : u.name.charAt(0).toUpperCase();
 
-              const isLive = activeStreams.hasOwnProperty(u.name);
-              const liveBadge = isLive ? '<span class="live-badge">AO VIVO</span>' : '';
+              const isSelf = u.socketId === socket.id;
+              const isLive = isSelf ? !!localStream : !!liveStreamers[u.socketId];
+              let liveBadge = '';
+              if (isLive) {
+                if (isSelf || watchedStreams[u.socketId]) {
+                  liveBadge = '<span class="live-badge">AO VIVO</span>';
+                } else {
+                  liveBadge = `<button class="watch-live-btn" onclick="event.stopPropagation(); watchLiveStream('${u.socketId}')">▶ Assistir</button>`;
+                }
+              }
+
+              const ping = peerPings[u.socketId];
+              const pingBadge = (!isSelf && ping != null) ? `<span class="user-ping-badge">${ping} ms</span>` : '';
 
               sub.innerHTML = `
                 <div class="voice-user-left">
                   <div class="voice-user-avatar" style="${avatarStyle}">${initialText}</div>
                   <span class="voice-user-name">${u.name}</span>
                 </div>
-                ${liveBadge}
+                <div style="display:flex; align-items:center; gap:6px;">
+                  ${pingBadge}
+                  ${liveBadge}
+                </div>
               `;
               sublist.appendChild(sub);
             });
@@ -1001,6 +1189,167 @@
         }
       });
     }
+
+    // ---------- Item 3: microfone real (voz) ----------
+    async function ensureLocalMic() {
+      if (localMicStream) return localMicStream;
+      try {
+        const deviceId = selectedMicId || document.getElementById('select-audio-input').value;
+        localMicStream = await navigator.mediaDevices.getUserMedia({
+          audio: deviceId ? { deviceId: { exact: deviceId } } : true
+        });
+        localMicStream.getAudioTracks().forEach(t => t.enabled = !isMuted && !isDeafened);
+        setupSpeakingDetection(localMicStream, socket.id);
+      } catch (err) {
+        console.error("Erro ao acessar o microfone:", err);
+        alert("Não foi possível acessar o microfone. Verifique as permissões do navegador.");
+      }
+      return localMicStream;
+    }
+
+    async function restartLocalMic() {
+      stopSpeakingDetection(socket.id);
+      if (localMicStream) { localMicStream.getTracks().forEach(t => t.stop()); localMicStream = null; }
+      await ensureLocalMic();
+      if (!localMicStream) return;
+      const newTrack = localMicStream.getAudioTracks()[0];
+      Object.entries(micSenders).forEach(([socketId, sender]) => {
+        if (sender && newTrack) sender.replaceTrack(newTrack).catch(() => {});
+      });
+    }
+
+    function applyMicState() {
+      if (localMicStream) {
+        localMicStream.getAudioTracks().forEach(t => t.enabled = !isMuted && !isDeafened);
+      }
+    }
+
+    function addMicTrackToPeer(pc, targetSocketId) {
+      if (!localMicStream) return;
+      const track = localMicStream.getAudioTracks()[0];
+      if (!track) return;
+      if (micSenders[targetSocketId]) return;
+      micSenders[targetSocketId] = pc.addTrack(track, localMicStream);
+    }
+
+    function attachRemoteMicAudio(targetSocketId, stream) {
+      let el = peerAudioEls[targetSocketId];
+      if (!el) {
+        el = document.createElement('audio');
+        el.autoplay = true;
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        peerAudioEls[targetSocketId] = el;
+      }
+      el.srcObject = stream;
+      el.muted = isDeafened;
+      if (el.setSinkId && selectedSpeakerId) el.setSinkId(selectedSpeakerId).catch(() => {});
+      setupSpeakingDetection(stream, targetSocketId);
+    }
+
+    function removeRemoteMicAudio(targetSocketId) {
+      const el = peerAudioEls[targetSocketId];
+      if (el) { el.srcObject = null; el.remove(); delete peerAudioEls[targetSocketId]; }
+      delete micSenders[targetSocketId];
+      stopSpeakingDetection(targetSocketId);
+    }
+
+    // ---------- Item 7: borda laranja de quem está falando ----------
+    function setupSpeakingDetection(stream, socketId) {
+      stopSpeakingDetection(socketId);
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        const src = ctx.createMediaStreamSource(stream);
+        src.connect(analyser);
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const tick = () => {
+          analyser.getByteFrequencyData(data);
+          let sum = 0;
+          for (let i = 0; i < data.length; i++) sum += data[i];
+          const speaking = (sum / data.length) > SPEAKING_THRESHOLD;
+          if (speakingState[socketId] !== speaking) {
+            speakingState[socketId] = speaking;
+            document.querySelectorAll(`[data-socket-id="${socketId}"]`).forEach(el => el.classList.toggle('speaking', speaking));
+          }
+          speakingRafIds[socketId] = requestAnimationFrame(tick);
+        };
+        tick();
+        speakingRafIds[socketId + '_ctx'] = ctx;
+      } catch (e) { console.error('Erro na detecção de fala:', e); }
+    }
+
+    function stopSpeakingDetection(socketId) {
+      if (speakingRafIds[socketId]) cancelAnimationFrame(speakingRafIds[socketId]);
+      const ctx = speakingRafIds[socketId + '_ctx'];
+      if (ctx) ctx.close().catch(() => {});
+      delete speakingRafIds[socketId];
+      delete speakingRafIds[socketId + '_ctx'];
+      delete speakingState[socketId];
+    }
+
+    // ---------- Item 2: ping real ----------
+    function startPingLoop() {
+      setInterval(() => {
+        const t0 = Date.now();
+        socket.emit('ping-check', t0, () => {
+          currentPingMs = Date.now() - t0;
+          const el = document.getElementById('self-ping-value');
+          if (el) el.textContent = `${currentPingMs} ms`;
+        });
+      }, 2500);
+
+      setInterval(updatePeerPings, 3000);
+    }
+
+    async function updatePeerPings() {
+      let changed = false;
+      for (const [socketId, pc] of Object.entries(peerConnections)) {
+        try {
+          const stats = await pc.getStats();
+          stats.forEach(r => {
+            if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) {
+              const rtt = Math.round(r.currentRoundTripTime * 1000);
+              if (peerPings[socketId] !== rtt) { peerPings[socketId] = rtt; changed = true; }
+            }
+          });
+        } catch (e) { /* ignora */ }
+      }
+      if (changed) { renderChannels(); renderStageUsers(); }
+    }
+
+    // ---------- Item 5: dock de controles some fora da área de palco ----------
+    function setupStageDockAutoHide() {
+      const area = document.getElementById('voice-room-view');
+      const dock = document.querySelector('.stage-controls-dock');
+      if (!area || !dock) return;
+      let hideTimer = null;
+      const show = () => {
+        dock.classList.remove('dock-hidden');
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => dock.classList.add('dock-hidden'), 2500);
+      };
+      area.addEventListener('mousemove', show);
+      area.addEventListener('mouseenter', show);
+      area.addEventListener('mouseleave', () => dock.classList.add('dock-hidden'));
+    }
+
+    // ---------- Item 6: assistir live sob demanda ----------
+    function watchLiveStream(targetSocketId) {
+      watchedStreams[targetSocketId] = true;
+      socket.emit('request-watch-stream', { targetSocketId });
+      renderChannels();
+      renderStageUsers();
+    }
+
+    socket.on('watch-stream-requested', (data) => {
+      // Só faz sentido responder se estivermos realmente transmitindo agora.
+      if (!localStream) return;
+      const pc = createPeerConnection(data.requesterSocketId);
+      addScreenTracksToPeer(pc);
+    });
 
     function connectVoice(channel) {
       if (connectedVoiceChannel && connectedVoiceChannel !== channel.id) {
@@ -1019,6 +1368,17 @@
       renderChannels();
       renderStageUsers();
       socket.emit('join-room', channel.id);
+
+      // Captura o microfone real e conecta a voz com quem já está na sala.
+      ensureLocalMic().then(() => {
+        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+        usersInChannel.forEach(u => {
+          if (u.socketId !== socket.id) {
+            const pc = createPeerConnection(u.socketId);
+            addMicTrackToPeer(pc, u.socketId);
+          }
+        });
+      });
     }
 
     function disconnectVoice(e) {
@@ -1032,7 +1392,18 @@
       document.getElementById('share-btn').disabled = true;
       document.getElementById('voice-connection-panel').style.display = 'none';
       if (localStream) stopScreenShare();
+
+      if (localMicStream) { localMicStream.getTracks().forEach(t => t.stop()); localMicStream = null; }
+      stopSpeakingDetection(socket.id);
+      Object.keys(peerConnections).forEach(id => { peerConnections[id].close(); delete peerConnections[id]; });
+      Object.keys(peerAudioEls).forEach(removeRemoteMicAudio);
+      micSenders = {};
+      liveStreamers = {};
+      watchedStreams = {};
+      activeStreams = {};
+
       renderChannels();
+      renderStreamsContainer();
     }
 
     function renderStageUsers() {
@@ -1040,24 +1411,38 @@
       stage.innerHTML = '';
       if (!connectedVoiceChannel) return;
 
-      const users = voiceChannelUsers[connectedVoiceChannel] || [{ name: username, avatarUrl: userAvatarUrl }];
+      const users = voiceChannelUsers[connectedVoiceChannel] || [{ name: username, avatarUrl: userAvatarUrl, socketId: socket.id }];
       
       users.forEach(u => {
         const card = document.createElement('div');
         card.className = 'user-card';
+        card.dataset.socketId = u.socketId || '';
+        if (speakingState[u.socketId]) card.classList.add('speaking');
 
         const avatarStyle = u.avatarUrl 
           ? `background-image: url(${u.avatarUrl});` 
           : `background: ${getUserAvatarGradient(u.name)};`;
         const initialText = u.avatarUrl ? '' : u.name.charAt(0).toUpperCase();
 
-        const isLive = activeStreams.hasOwnProperty(u.name);
-        const liveBadge = isLive ? '<span class="live-badge" style="margin-top: 1px;">AO VIVO</span>' : '';
+        const isSelf = u.socketId === socket.id;
+        const isLive = isSelf ? !!localStream : !!liveStreamers[u.socketId];
+        let liveBadge = '';
+        if (isLive) {
+          if (isSelf || watchedStreams[u.socketId]) {
+            liveBadge = '<span class="live-badge" style="margin-top: 1px;">AO VIVO</span>';
+          } else {
+            liveBadge = `<button class="watch-live-btn" onclick="event.stopPropagation(); watchLiveStream('${u.socketId}')">▶ Assistir</button>`;
+          }
+        }
+
+        const ping = peerPings[u.socketId];
+        const pingBadge = (!isSelf && ping != null) ? `<span class="user-ping-badge">${ping} ms</span>` : '';
 
         card.innerHTML = `
           <div class="card-avatar" style="${avatarStyle}">${initialText}</div>
           <div class="card-name-pill">${u.name}</div>
           ${liveBadge}
+          ${pingBadge}
         `;
         stage.appendChild(card);
       });
@@ -1065,6 +1450,7 @@
 
     function toggleMute() {
       isMuted = !isMuted;
+      applyMicState();
       document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
     }
@@ -1072,6 +1458,12 @@
     function toggleDeafen() {
       isDeafened = !isDeafened;
       isMuted = isDeafened;
+      applyMicState();
+
+      // Silencia o que estamos recebendo dos outros (voz e transmissões de tela).
+      Object.values(peerAudioEls).forEach(el => el.muted = isDeafened);
+      document.querySelectorAll('#streams-container video:not(.own-preview)').forEach(v => v.muted = isDeafened);
+
       document.getElementById('deafen-btn').classList.toggle('active-off', isDeafened);
       document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
       document.getElementById('stage-deafen-btn').classList.toggle('active-off', isDeafened);
@@ -1105,7 +1497,7 @@
           console.warn('Nenhuma faixa de áudio capturada. Ao compartilhar a tela, marque a opção "Compartilhar áudio" na janela do navegador.');
         }
         
-        addScreenStream(username, localStream);
+        addScreenStream(username, localStream, socket.id);
         socket.emit('start-streaming', connectedVoiceChannel);
 
         const shareBtn = document.getElementById('stage-share-btn');
@@ -1114,26 +1506,20 @@
 
         document.getElementById('stage-quality-btn').style.display = 'flex';
 
-        // Garante a conexão com todos da sala e adiciona as faixas de vídeo/áudio.
-        // A oferta é criada automaticamente pelo onnegotiationneeded de cada pc
-        // (evita duas ofertas colidindo quando os dois lados estão transmitindo).
-        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
-        usersInChannel.forEach(u => {
-          if (u.socketId !== socket.id) {
-            const pc = createPeerConnection(u.socketId);
-            addLocalTracksToPeer(pc);
-          }
-        });
+        // Item 6: NÃO empurramos a transmissão pra ninguém automaticamente aqui.
+        // Cada espectador só recebe vídeo/áudio quando clica em "Assistir" (evento
+        // 'watch-stream-requested' acima), exatamente como no Discord.
 
         localStream.getVideoTracks()[0].onended = () => stopScreenShare();
+        renderStageUsers();
       } catch (err) { console.error("Erro ao transmitir:", err); }
     }
 
     function stopScreenShare() {
-      // Remove só as NOSSAS faixas de cada conexão (renegocia automaticamente via
-      // onnegotiationneeded). Não fecha a conexão: ela pode ainda estar sendo usada
-      // para RECEBER a tela de outra pessoa que continua transmitindo.
-      Object.values(peerConnections).forEach(pc => removeLocalTracksFromPeer(pc));
+      // Remove só as NOSSAS faixas de tela de cada conexão (renegocia automaticamente
+      // via onnegotiationneeded). Não fecha a conexão: ela pode ainda estar sendo usada
+      // para a voz normal ou para RECEBER a tela de outra pessoa que continua transmitindo.
+      Object.values(peerConnections).forEach(pc => removeScreenTracksFromPeer(pc));
 
       if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
       removeScreenStream(username);
@@ -1146,19 +1532,19 @@
       shareBtn.title = "Transmitir Tela";
 
       document.getElementById('stage-quality-btn').style.display = 'none';
+      renderStageUsers();
     }
 
-    function addLocalTracksToPeer(pc) {
+    function addScreenTracksToPeer(pc) {
       if (!localStream) return;
-      const existingKinds = pc.getSenders().map(s => s.track && s.track.kind).filter(Boolean);
+      const existingKinds = pc.getSenders().map(s => s.track && s.track.kind && s.track.label).filter(Boolean);
       localStream.getTracks().forEach(track => {
-        if (!existingKinds.includes(track.kind)) {
-          pc.addTrack(track, localStream);
-        }
+        const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
+        if (!already) pc.addTrack(track, localStream);
       });
     }
 
-    function removeLocalTracksFromPeer(pc) {
+    function removeScreenTracksFromPeer(pc) {
       if (!localStream) return;
       const localTrackIds = localStream.getTracks().map(t => t.id);
       pc.getSenders().forEach(sender => {
@@ -1203,10 +1589,19 @@
       };
 
       pc.ontrack = (event) => {
-        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
-        const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
-        const targetName = targetUser ? targetUser.name : "Amigo";
-        addScreenStream(targetName, event.streams[0]);
+        const stream = event.streams[0];
+        const hasVideo = stream && stream.getVideoTracks().length > 0;
+
+        if (hasVideo) {
+          // Faixa de compartilhamento de tela (vídeo + áudio do sistema juntos).
+          const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+          const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
+          const targetName = targetUser ? targetUser.name : "Amigo";
+          addScreenStream(targetName, stream, targetSocketId);
+        } else {
+          // Faixa de voz (microfone) — toca num <audio> escondido, nunca no <video> da tela.
+          attachRemoteMicAudio(targetSocketId, stream);
+        }
       };
 
       pc.onicecandidate = (event) => {
@@ -1215,7 +1610,7 @@
         }
       };
 
-      addLocalTracksToPeer(pc);
+      addMicTrackToPeer(pc, targetSocketId);
 
       return pc;
     }
@@ -1236,7 +1631,7 @@
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
       }
 
-      addLocalTracksToPeer(pc);
+      addMicTrackToPeer(pc, data.senderSocketId);
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -1261,38 +1656,44 @@
       }
     });
 
-    // Só precisamos garantir que a conexão exista e tenha nossas faixas (se estivermos
-    // transmitindo) ou pedir para receber (se estivermos só entrando pra assistir).
-    // A oferta é disparada sozinha pelo onnegotiationneeded.
+    // Item 6: a live NÃO abre sozinha. Apenas registramos quem está transmitindo
+    // (pra mostrar o badge "AO VIVO" / botão "Assistir") — a conexão de vídeo real
+    // só é criada quando o usuário clica em "Assistir" (watchLiveStream -> 'request-watch-stream').
     socket.on('sync-active-streams', (streamingSocketIds) => {
       streamingSocketIds.forEach(targetSocketId => {
         if (targetSocketId !== socket.id) {
-          const pc = createPeerConnection(targetSocketId);
-          addLocalTracksToPeer(pc);
-          ensureReceiveTransceiver(pc);
+          const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+          const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
+          liveStreamers[targetSocketId] = targetUser ? targetUser.name : "Amigo";
         }
       });
+      renderChannels();
+      renderStageUsers();
     });
 
     socket.on('user-started-streaming', (targetSocketId) => {
       if (targetSocketId !== socket.id) {
-        const pc = createPeerConnection(targetSocketId);
-        addLocalTracksToPeer(pc);
+        const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+        const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
+        liveStreamers[targetSocketId] = targetUser ? targetUser.name : "Amigo";
+        renderChannels();
+        renderStageUsers();
       }
     });
 
     socket.on('user-stopped-streaming', (targetSocketId) => {
       // Não fecha a conexão aqui: se nós ainda estivermos transmitindo para essa
       // pessoa, a ligação (pc) precisa continuar aberta para o nosso lado funcionar.
-      const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
-      const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
-      if (targetUser) {
-        removeScreenStream(targetUser.name);
-      }
+      const streamerName = liveStreamers[targetSocketId];
+      delete liveStreamers[targetSocketId];
+      delete watchedStreams[targetSocketId];
+      if (streamerName) removeScreenStream(streamerName);
+      renderChannels();
+      renderStageUsers();
     });
 
-    function addScreenStream(user, stream) {
-      activeStreams[user] = stream;
+    function addScreenStream(user, stream, socketId) {
+      activeStreams[user] = { stream, socketId };
       renderStreamsContainer();
       renderChannels();
       renderStageUsers();
@@ -1320,14 +1721,17 @@
         const card = document.createElement('div');
         card.className = 'screen-stream-card';
         
+        const isOwnPreview = (userKey === username);
+
         const video = document.createElement('video');
         video.autoplay = true;
         video.playsinline = true;
-        video.muted = (userKey === username);
-        video.srcObject = activeStreams[userKey];
+        video.muted = isOwnPreview || isDeafened;
+        video.srcObject = activeStreams[userKey].stream;
         video.volume = 1;
+        if (isOwnPreview) video.classList.add('own-preview');
+        if (video.setSinkId && selectedSpeakerId && !isOwnPreview) video.setSinkId(selectedSpeakerId).catch(() => {});
 
-        const isOwnPreview = (userKey === username);
         let audioBlocked = false;
 
         // Controle único de volume/mudo (só faz sentido pra tela de quem NÃO é você,
