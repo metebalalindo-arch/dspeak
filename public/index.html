@@ -1626,7 +1626,7 @@
         micProcessingCtx = new (window.AudioContext || window.webkitAudioContext)();
         micSourceNode = micProcessingCtx.createMediaStreamSource(rawStream);
         micGateGainNode = micProcessingCtx.createGain();
-        micGateGainNode.gain.value = 0.03;
+        micGateGainNode.gain.value = 0.18;
         micDestNode = micProcessingCtx.createMediaStreamDestination();
         micSourceNode.connect(micGateGainNode);
         micGateGainNode.connect(micDestNode);
@@ -1638,27 +1638,33 @@
 
         let gateOpen = false;
         let lastAboveTime = 0;
-        const HOLD_MS = 400;
+        let smoothedLevel = 0;
+        const HOLD_MS = 700; // segura bem mais tempo aberto entre palavras/pausas de respiração
+        const GATE_CLOSED_GAIN = 0.18; // não zera o volume — só reduz bastante, sem soar "cortado"
 
         const tick = () => {
           if (!micProcessingCtx || micProcessingCtx.state === 'closed') return;
           analyser.getByteFrequencyData(data);
           let sum = 0;
           for (let i = 0; i < data.length; i++) sum += data[i];
-          const level = sum / data.length;
+          const rawLevel = sum / data.length;
+          // Média móvel: evita que uma variação rápida de meio segundo (respiração,
+          // pausa entre palavras) já feche o gate — é isso que causava o volume
+          // "bombando" (caindo e voltando de repente) que você notou.
+          smoothedLevel = smoothedLevel * 0.85 + rawLevel * 0.15;
           const now = performance.now();
 
-          if (level > NOISE_GATE_THRESHOLD) {
+          if (smoothedLevel > NOISE_GATE_THRESHOLD) {
             lastAboveTime = now;
             if (!gateOpen) {
               gateOpen = true;
               micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
-              micGateGainNode.gain.linearRampToValueAtTime(1, micProcessingCtx.currentTime + 0.02);
+              micGateGainNode.gain.linearRampToValueAtTime(1, micProcessingCtx.currentTime + 0.06);
             }
           } else if (gateOpen && (now - lastAboveTime) > HOLD_MS) {
             gateOpen = false;
             micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
-            micGateGainNode.gain.linearRampToValueAtTime(0.03, micProcessingCtx.currentTime + 0.15);
+            micGateGainNode.gain.linearRampToValueAtTime(GATE_CLOSED_GAIN, micProcessingCtx.currentTime + 0.5);
           }
           noiseGateRafId = requestAnimationFrame(tick);
         };
