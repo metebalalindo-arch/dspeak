@@ -185,6 +185,8 @@
     #chat-header { height: 52px; background: #13151b; border-bottom: 1px solid rgba(255, 85, 0, 0.12); display: flex; align-items: center; justify-content: space-between; padding: 0 18px; flex-shrink: 0; z-index: 10; }
     
     .content-workspace { flex: 1; display: flex; flex-direction: row; overflow: hidden; height: calc(100vh - 52px); }
+    .content-workspace.text-mode #voice-room-view { display: none; }
+    .content-workspace.text-mode #right-chat-sidebar { width: 100%; flex: 1; border-left: none; }
 
     #voice-room-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #08090c; padding: 16px; gap: 12px; }
     .voice-main-content { flex: 1; display: flex; flex-direction: column; position: relative; height: 100%; overflow: hidden; gap: 12px; }
@@ -1183,8 +1185,10 @@
       const firstText = srv.channels.find(c => c.type === 'text') || srv.channels[0];
       if (firstText) {
         activeChannel = firstText.id;
-        document.getElementById('chat-header-title').textContent = `# ${firstText.name}`;
+        document.getElementById('chat-header-title').textContent = `${firstText.type === 'voice' ? '🔊' : '#'} ${firstText.name}`;
         socket.emit('join-room', firstText.id);
+        switchWorkspaceLayout(firstText.type === 'voice');
+        loadChannelMessages(firstText.id);
       }
       renderServers();
       renderChannels();
@@ -1233,6 +1237,8 @@
           document.getElementById('chat-header-title').textContent = `${isVoice ? '🔊' : '#'} ${ch.name}`;
           if (isVoice) connectVoice(ch);
           socket.emit('join-room', ch.id);
+          switchWorkspaceLayout(isVoice);
+          loadChannelMessages(ch.id);
           renderChannels();
         };
 
@@ -2015,39 +2021,66 @@
       renderStageUsers();
     });
 
-    socket.on('chat-message', (data) => {
-      if (data.room === activeChannel) {
-        const chatList = document.getElementById('chat-messages-list');
+    // ---------- Chat individual por canal (texto E voz) ----------
+    let channelMessages = {}; // channelId -> array de mensagens recebidas nesta sessão
 
-        const msgDate = data.date || "Hoje";
-        if (lastRenderedDate !== msgDate) {
-          lastRenderedDate = msgDate;
-          const dateDiv = document.createElement('div');
-          dateDiv.className = 'chat-date-separator';
-          dateDiv.innerHTML = `<span class="chat-date-badge">${msgDate}</span>`;
-          chatList.appendChild(dateDiv);
-        }
+    function appendMessageToDOM(data) {
+      const chatList = document.getElementById('chat-messages-list');
 
-        const div = document.createElement('div');
-        div.className = 'chat-message-item';
+      const msgDate = data.date || "Hoje";
+      if (lastRenderedDate !== msgDate) {
+        lastRenderedDate = msgDate;
+        const dateDiv = document.createElement('div');
+        dateDiv.className = 'chat-date-separator';
+        dateDiv.innerHTML = `<span class="chat-date-badge">${msgDate}</span>`;
+        chatList.appendChild(dateDiv);
+      }
 
-        const avatarStyle = data.avatarUrl 
-          ? `background-image: url(${data.avatarUrl});` 
-          : `background: ${getUserAvatarGradient(data.user)};`;
-        const initialText = data.avatarUrl ? '' : data.user.charAt(0).toUpperCase();
+      const div = document.createElement('div');
+      div.className = 'chat-message-item';
 
-        div.innerHTML = `
-          <div class="chat-msg-avatar" style="${avatarStyle}">${initialText}</div>
-          <div class="chat-msg-body">
-            <div class="chat-msg-header">
-              <span class="chat-msg-author">${data.user}</span>
-              <span class="chat-msg-time">${data.time || 'Agora'}</span>
-            </div>
-            <div class="chat-msg-text">${data.message}</div>
+      const avatarStyle = data.avatarUrl 
+        ? `background-image: url(${data.avatarUrl});` 
+        : `background: ${getUserAvatarGradient(data.user)};`;
+      const initialText = data.avatarUrl ? '' : data.user.charAt(0).toUpperCase();
+
+      div.innerHTML = `
+        <div class="chat-msg-avatar" style="${avatarStyle}">${initialText}</div>
+        <div class="chat-msg-body">
+          <div class="chat-msg-header">
+            <span class="chat-msg-author">${data.user}</span>
+            <span class="chat-msg-time">${data.time || 'Agora'}</span>
           </div>
-        `;
-        chatList.appendChild(div);
-        chatList.scrollTop = chatList.scrollHeight;
+          <div class="chat-msg-text">${data.message}</div>
+        </div>
+      `;
+      chatList.appendChild(div);
+      chatList.scrollTop = chatList.scrollHeight;
+    }
+
+    // Troca o chat visível pro histórico daquele canal específico (cada sala, de texto
+    // ou de voz, guarda seu próprio papo separado durante a sessão).
+    function loadChannelMessages(channelId) {
+      const chatList = document.getElementById('chat-messages-list');
+      chatList.innerHTML = '';
+      lastRenderedDate = '';
+      const history = channelMessages[channelId] || [];
+      history.forEach(msg => appendMessageToDOM(msg));
+    }
+
+    // Mostra o chat em tela cheia (sem palco) pra canal de texto; mostra palco + chat
+    // lado a lado pra canal de voz. Isso é só visual — nunca desconecta da chamada.
+    function switchWorkspaceLayout(isVoice) {
+      const workspace = document.querySelector('.content-workspace');
+      workspace.classList.toggle('text-mode', !isVoice);
+    }
+
+    socket.on('chat-message', (data) => {
+      if (!channelMessages[data.room]) channelMessages[data.room] = [];
+      channelMessages[data.room].push(data);
+
+      if (data.room === activeChannel) {
+        appendMessageToDOM(data);
       } else if (data.user !== username) {
         // Mensagem chegou de outro canal: acende o badge vermelho ali, sem interromper
         // quem está lendo o canal atual.
