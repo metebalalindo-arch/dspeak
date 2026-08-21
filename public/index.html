@@ -4,96 +4,899 @@
   <meta charset="UTF-8">
   <title>DSpeak — Nexus Interface</title>
   <style>
-    /* Mantenha seus estilos originais aqui... */
-    .screen-stream-card { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
-    .screen-stream-card video { width: 100%; height: 100%; }
-    .live-badge { background: #ed4245; color: white; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'gg sans', 'Helvetica Neue', Arial, sans-serif; background: #0c0d10; color: #cfd2d8; display: flex; height: 100vh; overflow: hidden; }
+    
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #13151b; }
+    ::-webkit-scrollbar-thumb { background: #ff5500; border-radius: 3px; box-shadow: 0 0 8px rgba(255, 85, 0, 0.4); }
+    ::-webkit-scrollbar-thumb:hover { background: #ff7733; }
+
+    /* Tela de Conexão Inicial */
+    #auth-overlay { position: fixed; inset: 0; background: rgba(12, 13, 16, 0.95); backdrop-filter: blur(12px); z-index: 5000; display: flex; align-items: center; justify-content: center; }
+    .auth-card { background: #13151b; width: 420px; padding: 32px; border-radius: 16px; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 20px 50px rgba(0,0,0,0.9), 0 0 30px rgba(255, 85, 0, 0.2); display: flex; flex-direction: column; gap: 20px; }
+    .auth-logo { font-size: 24px; font-weight: 800; color: #ff5500; text-align: center; text-shadow: 0 0 12px rgba(255,85,0,0.5); }
+
+    /* Sidebar Esquerda de Servidores */
+    #servers-sidebar { width: 78px; background: #0f1117; display: flex; flex-direction: column; align-items: center; padding: 16px 0; gap: 10px; flex-shrink: 0; overflow-y: auto; border-right: 1px solid rgba(255, 85, 0, 0.12); }
+    
+    .server-icon { width: 48px; height: 48px; border-radius: 14px; background: #181b24; color: #cfd2d8; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 16px; cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); position: relative; user-select: none; flex-shrink: 0; border: 1px solid rgba(255, 255, 255, 0.04); }
+    .server-icon:hover { border-radius: 16px; background: #ff5500; color: #fff; box-shadow: 0 0 16px rgba(255, 85, 0, 0.6); }
+    .server-icon.active { border-radius: 16px; background: #ff5500; color: #fff; box-shadow: 0 0 20px rgba(255, 85, 0, 0.8); }
+    .server-icon.active::before { content: ''; position: absolute; left: -14px; top: 10px; bottom: 10px; width: 4px; background: #ff5500; border-radius: 0 4px 4px 0; box-shadow: 0 0 10px #ff5500; }
+
+    .server-divider { width: 32px; height: 2px; background: rgba(255, 85, 0, 0.2); border-radius: 1px; margin: 4px 0; flex-shrink: 0; }
+    .action-icon { background: #181b24; color: #00ffcc; border: 1px solid rgba(0, 255, 204, 0.2); }
+    .action-icon:hover { background: #00ffcc; color: #0c0d10; box-shadow: 0 0 16px rgba(0, 255, 204, 0.6); }
+
+    /* Sidebar de Canais */
+    #sidebar { width: 280px; background: #13151b; display: flex; flex-direction: column; position: relative; overflow: hidden; height: 100vh; flex-shrink: 0; border-right: 1px solid rgba(255, 85, 0, 0.08); }
+    
+    .server-header { height: 52px; padding: 0 18px; font-weight: bold; color: #f2f3f5; border-bottom: 1px solid rgba(255, 85, 0, 0.1); font-size: 15px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: background 0.15s; user-select: none; flex-shrink: 0; background: rgba(255, 85, 0, 0.03); }
+    .server-header:hover { background: rgba(255, 85, 0, 0.08); }
+
+    .server-menu { display: none; position: absolute; top: 56px; left: 10px; right: 10px; background: #181b24; border-radius: 8px; padding: 6px; box-shadow: 0 12px 30px rgba(0,0,0,0.8); z-index: 100; border: 1px solid rgba(255, 85, 0, 0.2); }
+    .menu-item { padding: 9px 12px; color: #b5bac1; font-size: 13px; font-weight: 500; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.15s; }
+    .menu-item:hover { background: #ff5500; color: #fff; box-shadow: 0 0 10px rgba(255, 85, 0, 0.4); }
+
+    .server-channels-scroll-area { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; min-height: 0; }
+
+    .section-header { padding: 14px 14px 4px 14px; font-size: 11px; font-weight: 700; color: #ff5500; text-transform: uppercase; letter-spacing: 0.8px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+    .add-channel-btn { cursor: pointer; font-size: 18px; color: #8a8f9d; transition: color 0.15s; padding: 0 6px; font-weight: bold; }
+    .add-channel-btn:hover { color: #ff5500; }
+
+    .channel-list { display: flex; flex-direction: column; gap: 3px; padding: 0 6px; flex-shrink: 0; }
+    .channel-wrapper { display: flex; flex-direction: column; position: relative; }
+    .channel { padding: 8px 10px; border-radius: 8px; color: #8a8f9d; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 13px; position: relative; margin: 0 4px; transition: all 0.15s; border: 1px solid transparent; }
+    .channel:hover { background: rgba(255, 85, 0, 0.06); color: #dbdee1; border-color: rgba(255, 85, 0, 0.15); }
+    .channel.active { background: rgba(255, 85, 0, 0.15); color: #fff; font-weight: 600; border-color: rgba(255, 85, 0, 0.4); box-shadow: 0 0 12px rgba(255, 85, 0, 0.2); }
+    
+    .channel-info { display: flex; align-items: center; gap: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+
+    .voice-user-sublist { display: flex; flex-direction: column; gap: 2px; padding-left: 22px; margin-top: 2px; margin-bottom: 4px; }
+    .voice-user-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; font-size: 13px; color: #dbdee1; cursor: pointer; transition: background 0.12s; }
+    .voice-user-item:hover { background: rgba(255, 85, 0, 0.08); }
+    .voice-user-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: #fff; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.1); background-size: cover; background-position: center; }
+    .voice-user-name { font-size: 13px; color: #b5bac1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Deck do Rodapé */
+    .discord-deck {
+      margin: 10px; flex-shrink: 0; background: #181b24; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.7); border: 1px solid rgba(255, 85, 0, 0.2); position: relative;
+    }
+    .voice-connection-panel { display: none; background: #13151b; padding: 12px 14px; border-bottom: 1px solid rgba(255, 85, 0, 0.15); align-items: center; justify-content: space-between; }
+    .voice-status-info { display: flex; flex-direction: column; gap: 3px; }
+    .voice-status-title { font-size: 13px; font-weight: bold; color: #00ffcc; display: flex; align-items: center; gap: 6px; text-shadow: 0 0 8px rgba(0,255,204,0.4); }
+    .voice-status-channel { font-size: 12px; color: #8a8f9d; }
+    
+    .btn-disconnect-voice { background: transparent; border: none; cursor: pointer; padding: 6px; border-radius: 6px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .btn-disconnect-voice:hover { background: rgba(255, 51, 51, 0.2); transform: scale(1.05); }
+
+    .action-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px 10px; background: #13151b; border-bottom: 1px solid rgba(255, 85, 0, 0.1); }
+    .grid-btn { background: #1c202d; border: 1px solid rgba(255,255,255,0.04); color: #ffffff; height: 38px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+    .grid-btn svg { width: 18px; height: 18px; stroke: #ffffff; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .grid-btn:hover { background: #ff5500; color: #fff; border-color: #ff5500; box-shadow: 0 0 10px rgba(255, 85, 0, 0.5); }
+    .grid-btn.active-off { background: rgba(255, 51, 51, 0.2); border-color: rgba(255, 51, 51, 0.4); }
+    .grid-btn.active-off svg { stroke: #ff3333; }
+    .grid-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    .user-profile-bar { padding: 10px 12px; display: flex; align-items: center; gap: 10px; background: #181b24; cursor: pointer; border-radius: 0; transition: background 0.15s; position: relative; }
+    .user-profile-bar:hover { background: #222633; }
+    .user-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 16px; position: relative; flex-shrink: 0; background-size: cover; background-position: center; border: 1px solid #ff5500; box-shadow: 0 0 8px rgba(255, 85, 0, 0.4); }
+
+    .status-dot { width: 12px; height: 12px; background: #00ffcc; border-radius: 50%; position: absolute; bottom: -1px; right: -1px; border: 2px solid #181b24; box-shadow: 0 0 6px #00ffcc; }
+    .user-details { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .user-name { font-size: 14px; font-weight: bold; color: #f2f3f5; display: flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-handle { font-size: 11px; color: #8a8f9d; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+
+    .status-selector-popover { display: none; position: absolute; bottom: 65px; left: 12px; background: #13151b; border: 1px solid rgba(255,85,0,0.3); border-radius: 8px; padding: 6px; z-index: 1000; box-shadow: 0 10px 25px rgba(0,0,0,0.8); width: 180px; }
+    .status-opt-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; font-size: 13px; color: #b5bac1; cursor: pointer; }
+    .status-opt-item:hover { background: #ff5500; color: #fff; }
+
+    .ping-wrapper { font-size: 11px; font-weight: bold; color: #00ffcc; display: flex; align-items: center; gap: 4px; }
+    .ping-icon { width: 7px; height: 7px; background: #00ffcc; border-radius: 50%; display: inline-block; box-shadow: 0 0 6px #00ffcc; }
+
+    /* Modais Padrão */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(6, 7, 10, 0.88); backdrop-filter: blur(8px); z-index: 1500; justify-content: center; align-items: center; }
+    .modal { background: #13151b; width: 440px; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 25px rgba(255,85,0,0.2); position: relative; border: 1px solid rgba(255, 85, 0, 0.3); }
+    .modal-close-btn { position: absolute; top: 16px; right: 16px; background: transparent; border: none; color: #8a8f9d; font-size: 18px; cursor: pointer; z-index: 10; }
+    .modal-close-btn:hover { color: #ff5500; }
+
+    .modal-header-center { text-align: center; margin-bottom: 16px; }
+    .modal-header-center h2 { font-size: 18px; font-weight: bold; color: #f2f3f5; margin-bottom: 4px; }
+    .modal-header-center p { font-size: 12px; color: #8a8f9d; }
+
+    /* Central de Configurações Fluida e Proporcional */
+    .settings-modal { width: 780px; max-width: 92vw; height: auto; max-height: 85vh; padding: 0; flex-direction: row; overflow: hidden; border-radius: 18px; }
+    .settings-sidebar-nav { width: 220px; background: #0f1117; padding: 20px 12px; border-right: 1px solid rgba(255, 85, 0, 0.15); display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
+    .settings-nav-title { font-size: 11px; font-weight: 800; color: #ff5500; text-transform: uppercase; letter-spacing: 1px; padding: 0 10px 8px 10px; }
+    .settings-nav-item { padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #8a8f9d; cursor: pointer; transition: all 0.15s ease; display: flex; align-items: center; gap: 10px; }
+    .settings-nav-item:hover { background: rgba(255, 85, 0, 0.08); color: #dbdee1; }
+    .settings-nav-item.active { background: #ff5500; color: #ffffff; box-shadow: 0 0 12px rgba(255, 85, 0, 0.4); }
+
+    .settings-main-wrapper { flex: 1; display: flex; flex-direction: column; background: #13151b; height: 100%; min-height: 0; overflow: hidden; }
+    .settings-content-area { flex: 1; display: flex; flex-direction: column; padding: 24px 28px; overflow-y: auto; min-height: 0; }
+    .settings-section-page { display: none; flex-direction: column; gap: 12px; }
+    .settings-section-page.active { display: flex; }
+
+    .avatar-upload-container { display: flex; justify-content: center; margin-bottom: 6px; }
+    .avatar-edit-wrapper { position: relative; width: 80px; height: 80px; cursor: pointer; }
+    .avatar-edit-preview { width: 100%; height: 100%; border-radius: 50%; border: 2px solid #ff5500; background-size: cover; background-position: center; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: bold; color: #fff; box-shadow: 0 0 15px rgba(255, 85, 0, 0.4); }
+    .avatar-edit-pencil { position: absolute; bottom: 0; right: 0; background: #ff5500; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #13151b; box-shadow: 0 2px 8px rgba(0,0,0,0.6); transition: transform 0.2s; }
+    .avatar-edit-pencil svg { width: 13px; height: 13px; stroke: #fff; stroke-width: 2.5; fill: none; }
+    .avatar-edit-wrapper:hover .avatar-edit-pencil { transform: scale(1.15); background: #ff7733; }
+
+    .modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 2px; }
+    .modal-field label { font-size: 11px; font-weight: bold; color: #ff5500; text-transform: uppercase; letter-spacing: 0.8px; }
+    .modal-field input, .modal-field select { background: #0c0d10; border: 1px solid rgba(255, 85, 0, 0.2); padding: 8px 12px; border-radius: 8px; color: #fff; outline: none; font-size: 13px; }
+    .modal-field input:focus, .modal-field select:focus { border-color: #ff5500; box-shadow: 0 0 10px rgba(255, 85, 0, 0.3); }
+
+    .opt-sec-label { font-size: 11px; font-weight: bold; color: #ff5500; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px; }
+    .opt-grid { display: flex; flex-direction: column; gap: 6px; }
+    .opt-card { background: #181b24; border: 1.5px solid rgba(255, 85, 0, 0.15); border-radius: 8px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: all 0.2s ease; }
+    .opt-card.selected { border-color: #ff5500; background: rgba(255, 85, 0, 0.12); box-shadow: 0 0 10px rgba(255, 85, 0, 0.2); }
+    .opt-card-title { font-size: 13px; font-weight: 600; color: #f2f3f5; }
+    .opt-card-sub { font-size: 11px; color: #8a8f9d; margin-top: 1px; }
+    .opt-radio-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #4e5058; display: flex; align-items: center; justify-content: center; }
+    .opt-card.selected .opt-radio-dot { border-color: #ff5500; background: #ff5500; }
+
+    /* Teste do Microfone Integrado */
+    .mic-test-container { background: #0c0d10; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255, 85, 0, 0.2); display: flex; flex-direction: column; gap: 6px; }
+    .mic-test-bar-wrapper { width: 100%; height: 8px; background: #181b24; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,85,0,0.15); }
+    .mic-test-bar-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #00ffcc 0%, #ffaa00 70%, #ff3333 100%); border-radius: 4px; transition: width 0.05s ease-out; }
+    .sensitivity-slider { width: 100%; accent-color: #ff5500; cursor: pointer; }
+
+    .shortcut-key-badge { background: #181b24; border: 1px solid #ff5500; color: #ff5500; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; width: fit-content; }
+
+    /* Rodapé Unificado Flexível */
+    .settings-footer-bar { padding: 12px 28px; background: #0f1117; border-top: 1px solid rgba(255, 85, 0, 0.15); display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
+    
+    .btn-create { background: #ff5500; border: none; color: #fff; padding: 8px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.2s; box-shadow: 0 0 12px rgba(255,85,0,0.4); font-size: 13px; }
+    .btn-create:hover { background: #ff7733; }
+    .btn-cancel { background: transparent; border: none; color: #8a8f9d; cursor: pointer; padding: 8px 12px; font-weight: 500; font-size: 13px; }
+    .btn-logout { background: rgba(255, 51, 51, 0.15); border: 1px solid rgba(255, 51, 51, 0.4); color: #ff3333; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: all 0.2s; font-size: 12px; margin-top: 10px; }
+    .btn-logout:hover { background: #ff3333; color: #fff; }
+
+    /* Área Principal */
+    #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #0c0d10; position: relative; height: 100vh; }
+    #chat-header { height: 52px; background: #13151b; border-bottom: 1px solid rgba(255, 85, 0, 0.12); display: flex; align-items: center; justify-content: space-between; padding: 0 18px; flex-shrink: 0; z-index: 10; }
+    
+    .content-workspace { flex: 1; display: flex; flex-direction: row; overflow: hidden; height: calc(100vh - 52px); }
+
+    /* Palco Principal */
+    #voice-room-view { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background: #08090c; padding: 20px; gap: 16px; }
+    .voice-main-content { flex: 1; display: flex; flex-direction: column; position: relative; height: 100%; overflow: hidden; gap: 16px; }
+
+    .stage-layout { flex: 1; display: flex; gap: 16px; width: 100%; height: 100%; min-height: 0; overflow: hidden; align-items: center; justify-content: center; }
+
+    /* Área de Múltiplas Transmissões */
+    #streams-container { display: none; flex: 2; height: 100%; min-width: 0; gap: 12px; overflow-y: auto; align-content: center; justify-content: center; flex-wrap: wrap; }
+    .screen-stream-card { width: 100%; max-height: 100%; aspect-ratio: 16/9; background: #0c0d10; border-radius: 14px; border: 1px solid rgba(255, 85, 0, 0.4); box-shadow: 0 16px 40px rgba(0,0,0,0.8); overflow: hidden; position: relative; display: flex; flex-direction: column; flex-shrink: 0; }
+    .screen-stream-card video { width: 100%; height: 100%; object-fit: contain; }
+    .screen-user-badge { position: absolute; top: 12px; left: 12px; background: rgba(12, 13, 16, 0.85); backdrop-filter: blur(8px); padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: bold; color: #fff; border: 1px solid rgba(255, 85, 0, 0.3); }
+
+    /* Grid de Voz */
+    .connected-users-stage { flex: 1; display: grid; grid-template-columns: repeat(2, 110px); grid-auto-rows: 110px; gap: 12px; align-content: center; justify-content: center; overflow-y: auto; padding-bottom: 50px; }
+
+    .user-card { width: 110px; height: 110px; border-radius: 14px; background: linear-gradient(135deg, #181b24, #221c2e); display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 8px 20px rgba(0,0,0,0.6); transition: all 0.2s ease; gap: 8px; }
+    .card-avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 16px; box-shadow: 0 0 12px rgba(255, 85, 0, 0.4); background-size: cover; background-position: center; border: 2px solid #ff5500; }
+    .card-name-pill { font-size: 11px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 90px; text-align: center; }
+
+    .connected-users-stage.solo-mode { grid-template-columns: 220px; grid-auto-rows: 220px; }
+    .connected-users-stage.solo-mode .user-card { width: 220px; height: 220px; border-radius: 20px; gap: 14px; }
+    .connected-users-stage.solo-mode .card-avatar { width: 88px; height: 88px; font-size: 32px; }
+    .connected-users-stage.solo-mode .card-name-pill { font-size: 14px; max-width: 190px; }
+
+    .stage-controls-dock { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(19, 21, 27, 0.92); backdrop-filter: blur(12px); border-radius: 18px; padding: 8px 16px; display: flex; align-items: center; gap: 12px; z-index: 300; border: 1px solid rgba(255, 85, 0, 0.35); box-shadow: 0 12px 35px rgba(0,0,0,0.9), 0 0 20px rgba(255,85,0,0.25); }
+    .stage-btn { width: 44px; height: 44px; border-radius: 12px; background: #1c202d; border: 1px solid rgba(255,255,255,0.06); color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .stage-btn svg { width: 20px; height: 20px; stroke: #ffffff; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .stage-btn:hover { background: #ff5500; border-color: #ff5500; box-shadow: 0 0 12px rgba(255, 85, 0, 0.6); }
+    .stage-btn.active-off { background: rgba(255, 51, 51, 0.2); border-color: rgba(255, 51, 51, 0.4); }
+    .stage-btn.active-off svg { stroke: #ff3333; }
+    .stage-btn.active-share { background: #ff3333 !important; border-color: #ff3333 !important; }
+
+    /* Chat na Lateral Direita */
+    #right-chat-sidebar { width: 340px; background: #13151b; border-left: 1px solid rgba(255, 85, 0, 0.12); display: flex; flex-direction: column; flex-shrink: 0; }
+    
+    .chat-date-separator { display: flex; align-items: center; justify-content: center; margin: 16px 0 8px 0; position: relative; }
+    .chat-date-separator::before { content: ''; position: absolute; inset: 0; display: flex; align-items: center; border-top: 1px solid rgba(255, 85, 0, 0.15); }
+    .chat-date-badge { background: #181b24; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: bold; color: #8a8f9d; position: relative; border: 1px solid rgba(255, 85, 0, 0.2); text-transform: uppercase; }
+
+    #chat-messages-list { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+    
+    .chat-message-item { display: flex; gap: 10px; align-items: flex-start; }
+    .chat-msg-avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; font-size: 13px; flex-shrink: 0; border: 1px solid rgba(255,85,0,0.4); background-size: cover; background-position: center; }
+    .chat-msg-body { display: flex; flex-direction: column; gap: 2px; }
+    .chat-msg-header { display: flex; align-items: center; gap: 8px; }
+    .chat-msg-author { font-size: 13px; font-weight: bold; color: #f2f3f5; }
+    .chat-msg-time { font-size: 11px; color: #8a8f9d; font-weight: 500; }
+    .chat-msg-text { font-size: 13px; color: #dbdee1; line-height: 1.4; word-break: break-word; }
+
+    .form-container { padding: 14px 16px; background: transparent; flex-shrink: 0; }
+    .input-wrapper { display: flex; background: #0c0d10; border-radius: 10px; padding: 4px 10px; align-items: center; border: 1px solid rgba(255, 85, 0, 0.2); }
+    .input-wrapper input { flex: 1; padding: 8px 4px; border: none; background: transparent; color: #f2f3f5; font-size: 13px; outline: none; }
+    .input-wrapper button { background: #ff5500; border: none; color: white; padding: 6px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
   </style>
 </head>
 <body>
-  <!-- (Mantenha sua estrutura HTML de sidebar e botões igual) -->
-  <div id="streams-container"></div>
+
+  <!-- Overlay Conectar Inicial -->
+  <div id="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-logo">DSPEAK CLIENT</div>
+      <div style="font-size: 13px; color: #8a8f9d; text-align: center; margin-top: -10px;">Digite seu apelido para conectar ao servidor</div>
+
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <div class="modal-field">
+          <label>Apelido / Nickname</label>
+          <input type="text" id="nickname-input" placeholder="Ex: Daniel" autofocus onkeypress="if(event.key==='Enter') connectToServer()" />
+        </div>
+        <button class="btn-create" onclick="connectToServer()" style="width: 100%;">Conectar e Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar Servidores -->
+  <div id="servers-sidebar">
+    <div id="servers-list-container" style="display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%;"></div>
+    <div class="server-divider"></div>
+    <div class="server-icon action-icon" onclick="openCreateServerModal()" title="Adicionar Servidor">+</div>
+  </div>
+
+  <!-- Sidebar Canais -->
+  <div id="sidebar">
+    <div id="server-sidebar-content" style="display: flex; flex-direction: column; height: 100%; min-height: 0;">
+      <div class="server-header" id="server-header-btn" onclick="toggleServerMenu(event)">
+        <span id="server-title-text">DSPEAK</span>
+        <span style="font-size: 12px; color: #ff5500;">▼</span>
+      </div>
+
+      <div class="server-menu" id="server-menu">
+        <div class="menu-item" onclick="openCreateChannel('text')"><span>Criar Canal de Texto</span><span>+#</span></div>
+        <div class="menu-item" onclick="openCreateChannel('voice')"><span>Criar Canal de Voz</span><span>+🔊</span></div>
+      </div>
+
+      <div class="server-channels-scroll-area">
+        <div class="section-header">
+          <span>Canais de Texto</span>
+          <span class="add-channel-btn" onclick="openCreateChannel('text')" title="Criar canal de texto">+</span>
+        </div>
+        <div class="channel-list" id="text-channels"></div>
+
+        <div class="section-header" style="margin-top: 10px;">
+          <span>Canais de Voz</span>
+          <span class="add-channel-btn" onclick="openCreateChannel('voice')" title="Criar canal de voz">+</span>
+        </div>
+        <div class="channel-list" id="voice-channels"></div>
+      </div>
+    </div>
+
+    <!-- Rodapé Deck -->
+    <div class="discord-deck">
+      <div class="voice-connection-panel" id="voice-connection-panel">
+        <div class="voice-status-info">
+          <span class="voice-status-title">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00ffcc" stroke-width="2.5"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+            Conectado
+          </span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="voice-status-channel" id="voice-status-channel-name">Lobby</span>
+            <div class="ping-wrapper"><span class="ping-icon"></span><span>8 ms</span></div>
+          </div>
+        </div>
+        <button class="btn-disconnect-voice" onclick="disconnectVoice(event)" title="Desconectar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ff3333" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>
+        </button>
+      </div>
+
+      <div class="action-grid">
+        <button class="grid-btn" id="mic-btn" title="Mutar" disabled onclick="toggleMute()">
+          <svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+        </button>
+        
+        <button class="grid-btn" id="deafen-btn" title="Ensurdecer" disabled onclick="toggleDeafen()">
+          <svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2H3z"/></svg>
+        </button>
+        
+        <button class="grid-btn" id="share-btn" title="Transmitir Tela" disabled onclick="toggleScreenShare()">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        </button>
+        <button class="grid-btn" id="settings-btn" title="Central de Configurações" onclick="openSettingsModal('profile')">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l-.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        </button>
+      </div>
+
+      <div class="user-profile-bar" id="user-profile-bar" onclick="toggleStatusSelector(event)">
+        <div class="user-avatar" id="footer-user-avatar"><span id="user-initial">U</span><div class="status-dot" id="footer-status-dot"></div></div>
+        <div class="user-details">
+          <span class="user-name" id="user-display-name">Usuário</span>
+          <span class="user-handle" id="user-handle-name">@online</span>
+        </div>
+      </div>
+
+      <div class="status-selector-popover" id="status-selector-popover">
+        <div class="status-opt-item" onclick="setUserStatus('online', '#00ffcc')">Disponível</div>
+        <div class="status-opt-item" onclick="setUserStatus('idle', '#ffaa00')">Ausente</div>
+        <div class="status-opt-item" onclick="setUserStatus('dnd', '#ff3333')">Ocupado</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Central de Configurações Modal -->
+  <div class="modal-overlay" id="settings-center-modal">
+    <div class="modal settings-modal">
+      <button class="modal-close-btn" onclick="closeModal('settings-center-modal')">✕</button>
+      
+      <div class="settings-sidebar-nav">
+        <div class="settings-nav-title">Configurações</div>
+        <div class="settings-nav-item active" id="nav-item-profile" onclick="switchSettingsTab('profile')"><span>👤 Perfil</span></div>
+        <div class="settings-nav-item" id="nav-item-voice" onclick="switchSettingsTab('voice')"><span>🎙️ Voz & Áudio</span></div>
+        <div class="settings-nav-item" id="nav-item-stream" onclick="switchSettingsTab('stream')"><span>🖥️ Transmissão</span></div>
+      </div>
+
+      <div class="settings-main-wrapper">
+        <div class="settings-content-area">
+          
+          <div class="settings-section-page active" id="page-settings-profile">
+            <div class="modal-header-center" style="text-align: left;">
+              <h2>Editar Perfil</h2>
+              <p>Personalize sua identidade no DSpeak.</p>
+            </div>
+            <div class="avatar-upload-container">
+              <div class="avatar-edit-wrapper" onclick="triggerAvatarUpload()">
+                <div class="avatar-edit-preview" id="modal-avatar-preview"><span id="modal-avatar-initial">U</span></div>
+                <div class="avatar-edit-pencil" title="Trocar foto"><svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+              </div>
+              <input type="file" id="avatar-file-input" accept="image/*" style="display: none;" onchange="handleAvatarFileSelect(event)" />
+            </div>
+            <div class="modal-field">
+              <label>Novo Apelido</label>
+              <input type="text" id="new-nickname-input" placeholder="Digite seu novo apelido..." />
+            </div>
+            <button class="btn-logout" onclick="logoutUser()">Desconectar / Trocar de Apelido</button>
+          </div>
+
+          <div class="settings-section-page" id="page-settings-voice">
+            <div class="modal-header-center" style="text-align: left;">
+              <h2>Voz & Áudio</h2>
+              <p>Configure seus dispositivos.</p>
+            </div>
+            <div class="modal-field">
+              <label>Dispositivo de Entrada (Microfone)</label>
+              <select id="select-audio-input" onchange="startMicTest()"><option>Buscando dispositivos...</option></select>
+            </div>
+            <div class="modal-field">
+              <label>Dispositivo de Saída</label>
+              <select id="select-audio-output"><option>Buscando dispositivos...</option></select>
+            </div>
+          </div>
+
+          <div class="settings-section-page" id="page-settings-stream">
+            <div class="modal-header-center" style="text-align: left;">
+              <h2>Qualidade de Transmissão</h2>
+              <p>Ajuste resolução e FPS.</p>
+            </div>
+            <div class="opt-sec-label">RESOLUÇÃO DE VÍDEO</div>
+            <div class="opt-grid">
+              <div class="opt-card selected" id="opt-res-720" onclick="selectRes('720')"><div><div class="opt-card-title">720p HD</div></div><div class="opt-radio-dot"></div></div>
+              <div class="opt-card" id="opt-res-1080" onclick="selectRes('1080')"><div><div class="opt-card-title">1080p Full HD</div></div><div class="opt-radio-dot"></div></div>
+            </div>
+            <div class="opt-sec-label" style="margin-top: 6px;">TAXA DE QUADROS (FPS)</div>
+            <div class="opt-grid">
+              <div class="opt-card selected" id="opt-fps-30" onclick="selectFps('30')"><div><div class="opt-card-title">30 FPS</div></div><div class="opt-radio-dot"></div></div>
+              <div class="opt-card" id="opt-fps-60" onclick="selectFps('60')"><div><div class="opt-card-title">60 FPS</div></div><div class="opt-radio-dot"></div></div>
+            </div>
+          </div>
+
+        </div>
+        <div class="settings-footer-bar">
+          <button class="btn-cancel" onclick="closeModal('settings-center-modal')">Cancelar</button>
+          <button class="btn-create" onclick="saveSettingsCentral()">Salvar Alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Criar Canal -->
+  <div class="modal-overlay" id="channel-modal">
+    <div class="modal">
+      <button class="modal-close-btn" onclick="closeModal('channel-modal')">✕</button>
+      <div class="modal-header-center"><h2>Criar Canal</h2></div>
+      <div class="modal-field"><label>Nome do Canal</label><input type="text" id="new-channel-name" placeholder="ex: bate-papo" /></div>
+      <div class="modal-field"><label>Tipo</label><select id="new-channel-type"><option value="text">Texto (#)</option><option value="voice">Voz (🔊)</option></select></div>
+      <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;"><button class="btn-cancel" onclick="closeModal('channel-modal')">Cancelar</button><button class="btn-create" onclick="confirmCreateChannel()">Criar</button></div>
+    </div>
+  </div>
+
+  <!-- Modal Criar Servidor -->
+  <div class="modal-overlay" id="create-server-modal">
+    <div class="modal">
+      <button class="modal-close-btn" onclick="closeModal('create-server-modal')">✕</button>
+      <div class="modal-header-center"><h2>Criar Servidor</h2></div>
+      <div class="modal-field"><label>Nome</label><input type="text" id="new-server-name-input" /></div>
+      <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;"><button class="btn-cancel" onclick="closeModal('create-server-modal')">Cancelar</button><button class="btn-create" onclick="confirmCreateServer()">Criar</button></div>
+    </div>
+  </div>
+
+  <!-- Área Principal -->
+  <div id="main">
+    <div id="chat-header">
+      <div class="dm-header-left"><div id="chat-header-user-info"><span id="chat-header-title"># geral</span></div></div>
+    </div>
+
+    <div class="content-workspace">
+      <!-- Palco de Voz / Transmissão -->
+      <div id="voice-room-view">
+        <div class="voice-main-content">
+          <div class="stage-layout">
+            <div id="streams-container"></div>
+            <div class="connected-users-stage" id="connected-users-stage"></div>
+          </div>
+
+          <div class="stage-controls-dock">
+            <button class="stage-btn" id="stage-mic-btn" onclick="toggleMute()" title="Mutar"><svg viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg></button>
+            <button class="stage-btn" id="stage-deafen-btn" onclick="toggleDeafen()" title="Ensurdecer"><svg viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2H3z"/></svg></button>
+            <button class="stage-btn" id="stage-share-btn" onclick="toggleScreenShare()" title="Transmitir Tela"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat na Lateral Direita -->
+      <div id="right-chat-sidebar">
+        <div id="chat-messages-list"></div>
+        <form class="form-container" onsubmit="sendTextMessage(event)">
+          <div class="input-wrapper">
+            <input id="input" autocomplete="off" placeholder="Enviar mensagem..." />
+            <button type="submit">Enviar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+
+    let username = "";
+    let userAvatarUrl = "";
+    let tempAvatarUrl = "";
+    let activeStreams = {};
+    let selectedResolution = "720";
+    let selectedFps = "30";
+
+    let servers = [{
+      id: 'dspeak',
+      name: 'DSPEAK SERVER',
+      initials: 'DS',
+      channels: [
+        { id: 'geral', name: 'geral', type: 'text' },
+        { id: 'lobby', name: 'Lobby', type: 'voice' }
+      ]
+    }];
+
+    let activeServerId = 'dspeak';
+    let activeChannel = 'geral';
+    let connectedVoiceChannel = null;
     let localStream = null;
-    let peerConnections = {}; // Armazena conexões P2P
+    let isMuted = false;
+    let isDeafened = false;
+    let voiceChannelUsers = {};
+
+    // --- VARIÁVEIS WEBRTC ---
+    let peerConnections = {};
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    // Função de Transmissão (Screen Share)
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedUser = localStorage.getItem('dspeak_username');
+      const savedAvatar = localStorage.getItem('dspeak_avatar');
+      if (savedUser) {
+        username = savedUser;
+        if (savedAvatar) userAvatarUrl = savedAvatar;
+        document.getElementById('auth-overlay').style.display = 'none';
+        initAppSession();
+      }
+    });
+
+    function connectToServer() {
+      const inputName = document.getElementById('nickname-input').value.trim();
+      if (!inputName) { alert("Digite um apelido válido."); return; }
+      username = inputName;
+      localStorage.setItem('dspeak_username', username);
+      document.getElementById('auth-overlay').style.display = 'none';
+      initAppSession();
+    }
+
+    function initAppSession() {
+      updateUserProfileUI();
+      socket.emit('register-user', { username, avatarUrl: userAvatarUrl });
+      renderServers();
+      switchServer('dspeak');
+    }
+
+    function logoutUser() {
+      localStorage.removeItem('dspeak_username');
+      localStorage.removeItem('dspeak_avatar');
+      location.reload();
+    }
+
+    function updateUserProfileUI() {
+      document.getElementById('user-display-name').textContent = username;
+      document.getElementById('user-handle-name').textContent = `@${username.toLowerCase()}`;
+      const footerAvatar = document.getElementById('footer-user-avatar');
+      const userInitialSpan = document.getElementById('user-initial');
+      if (userAvatarUrl) {
+        footerAvatar.style.backgroundImage = `url(${userAvatarUrl})`;
+        userInitialSpan.style.display = 'none';
+      } else {
+        footerAvatar.style.backgroundImage = 'none';
+        footerAvatar.style.background = getUserAvatarGradient(username);
+        userInitialSpan.style.display = 'block';
+        userInitialSpan.textContent = username.charAt(0).toUpperCase();
+      }
+    }
+
+    function openSettingsModal(tab = 'profile') {
+      tempAvatarUrl = userAvatarUrl;
+      document.getElementById('new-nickname-input').value = username;
+      openModal('settings-center-modal');
+    }
+
+    function switchSettingsTab(tab) {
+      document.querySelectorAll('.settings-nav-item').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.settings-section-page').forEach(el => el.classList.remove('active'));
+      document.getElementById(`nav-item-${tab}`).classList.add('active');
+      document.getElementById(`page-settings-${tab}`).classList.add('active');
+    }
+
+    function getUserAvatarGradient(name) {
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) { hash = name.charCodeAt(i) + ((hash << 5) - hash); }
+      return `linear-gradient(135deg, hsl(${Math.abs(hash) % 360}, 80%, 45%), #ff5500)`;
+    }
+
+    function toggleStatusSelector(e) {
+      e.stopPropagation();
+      const pop = document.getElementById('status-selector-popover');
+      pop.style.display = pop.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function setUserStatus(statusKey, colorHex) {
+      document.getElementById('footer-status-dot').style.background = colorHex;
+      document.getElementById('status-selector-popover').style.display = 'none';
+    }
+
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function switchServer(serverId) {
+      activeServerId = serverId;
+      const srv = servers.find(s => s.id === serverId);
+      if (!srv) return;
+      document.getElementById('server-title-text').textContent = srv.name;
+      const firstText = srv.channels.find(c => c.type === 'text') || srv.channels[0];
+      if (firstText) {
+        activeChannel = firstText.id;
+        document.getElementById('chat-header-title').textContent = `# ${firstText.name}`;
+        socket.emit('join-room', firstText.id);
+      }
+      renderServers();
+      renderChannels();
+    }
+
+    function renderServers() {
+      const container = document.getElementById('servers-list-container');
+      container.innerHTML = '';
+      servers.forEach(srv => {
+        const div = document.createElement('div');
+        div.className = `server-icon ${srv.id === activeServerId ? 'active' : ''}`;
+        div.textContent = srv.initials;
+        div.onclick = () => switchServer(srv.id);
+        container.appendChild(div);
+      });
+    }
+
+    function renderChannels() {
+      const textContainer = document.getElementById('text-channels');
+      const voiceContainer = document.getElementById('voice-channels');
+      textContainer.innerHTML = ''; voiceContainer.innerHTML = '';
+      const srv = servers.find(s => s.id === activeServerId);
+      if (!srv) return;
+
+      srv.channels.forEach(ch => {
+        const isVoice = ch.type === 'voice';
+        const div = document.createElement('div');
+        div.className = `channel ${ch.id === activeChannel ? 'active' : ''}`;
+        div.innerHTML = `<div class="channel-info"><span>${isVoice ? '🔊' : '#'}</span><span>${ch.name}</span></div>`;
+        
+        div.onclick = () => {
+          activeChannel = ch.id;
+          document.getElementById('chat-header-title').textContent = `${isVoice ? '🔊' : '#'} ${ch.name}`;
+          if (isVoice) connectVoice(ch);
+          socket.emit('join-room', ch.id);
+          renderChannels();
+        };
+
+        if (isVoice) {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'channel-wrapper';
+          wrapper.appendChild(div);
+          const usersInChannel = voiceChannelUsers[ch.id] || [];
+          if (usersInChannel.length > 0) {
+            const sublist = document.createElement('div');
+            sublist.className = 'voice-user-sublist';
+            usersInChannel.forEach(u => {
+              const sub = document.createElement('div');
+              sub.className = 'voice-user-item';
+              const avatarStyle = u.avatar ? `background-image: url(${u.avatar});` : `background: ${getUserAvatarGradient(u.name)};`;
+              const initialText = u.avatar ? '' : u.name.charAt(0).toUpperCase();
+              
+              sub.innerHTML = `<div class="voice-user-avatar" style="${avatarStyle}">${initialText}</div><span class="voice-user-name">${u.name}</span>`;
+              sublist.appendChild(sub);
+            });
+            wrapper.appendChild(sublist);
+          }
+          voiceContainer.appendChild(wrapper);
+        } else {
+          textContainer.appendChild(div);
+        }
+      });
+    }
+
+    function connectVoice(channel) {
+      if (connectedVoiceChannel && connectedVoiceChannel !== channel.id) {
+        socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
+      }
+      connectedVoiceChannel = channel.id;
+      socket.emit('join-voice-room', { channelId: channel.id, username, avatar: userAvatarUrl });
+
+      document.getElementById('mic-btn').disabled = false;
+      document.getElementById('deafen-btn').disabled = false;
+      document.getElementById('share-btn').disabled = false;
+      document.getElementById('voice-connection-panel').style.display = 'flex';
+      document.getElementById('voice-status-channel-name').textContent = channel.name;
+
+      renderChannels();
+      renderStageUsers();
+      socket.emit('join-room', channel.id);
+    }
+
+    function disconnectVoice(e) {
+      if (e) e.stopPropagation();
+      if (connectedVoiceChannel) {
+        socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
+        connectedVoiceChannel = null;
+      }
+      document.getElementById('mic-btn').disabled = true;
+      document.getElementById('deafen-btn').disabled = true;
+      document.getElementById('share-btn').disabled = true;
+      document.getElementById('voice-connection-panel').style.display = 'none';
+      if (localStream) stopScreenShare();
+      renderChannels();
+    }
+
+    function renderStageUsers() {
+      const stage = document.getElementById('connected-users-stage');
+      stage.innerHTML = '';
+      if (!connectedVoiceChannel) return;
+
+      const users = voiceChannelUsers[connectedVoiceChannel] || [{ name: username, avatar: userAvatarUrl }];
+      if (users.length === 1) stage.classList.add('solo-mode');
+      else stage.classList.remove('solo-mode');
+
+      users.forEach(u => {
+        const card = document.createElement('div');
+        card.className = 'user-card';
+        const avatarStyle = u.avatar ? `background-image: url(${u.avatar});` : `background: ${getUserAvatarGradient(u.name)};`;
+        const initialText = u.avatar ? '' : u.name.charAt(0).toUpperCase();
+
+        card.innerHTML = `
+          <div class="card-avatar" style="${avatarStyle}">${initialText}</div>
+          <div class="card-name-pill">${u.name}</div>
+        `;
+        stage.appendChild(card);
+      });
+    }
+
+    function toggleMute() {
+      isMuted = !isMuted;
+      if (localStream) localStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
+      document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
+      document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
+    }
+
+    function toggleDeafen() {
+      isDeafened = !isDeafened;
+      isMuted = isDeafened;
+      document.getElementById('deafen-btn').classList.toggle('active-off', isDeafened);
+      document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
+      document.getElementById('stage-deafen-btn').classList.toggle('active-off', isDeafened);
+      document.getElementById('stage-mic-btn').classList.toggle('active-off', isMuted);
+    }
+
+    // --- LÓGICA DE COMPARTILHAMENTO DE TELA (WEBRTC) ---
     async function toggleScreenShare() {
       if (!localStream) {
         try {
           localStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-          socket.emit('update-streaming-status', { channelId: connectedVoiceChannel, isStreaming: true });
-          
-          // Adiciona o vídeo na própria tela
-          renderStream(username, localStream);
+          addScreenStream(username, localStream);
 
-          // Avisa todos na sala que você começou a transmitir
-          socket.emit('request-stream-connection', { targetChannel: connectedVoiceChannel });
-        } catch (err) { console.error("Erro na transmissão:", err); }
+          const shareBtn = document.getElementById('stage-share-btn');
+          shareBtn.classList.add('active-share');
+
+          // Conecta com os outros usuários que já estão na sala de voz
+          const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+          usersInChannel.forEach(u => {
+            if (u.name !== username) {
+              createPeerConnection(u.socketId, true);
+            }
+          });
+
+          localStream.getVideoTracks()[0].onended = () => stopScreenShare();
+        } catch (err) { console.error("Erro ao transmitir:", err); }
       } else {
         stopScreenShare();
       }
     }
 
-    // Ouvinte para quando alguém novo entra na sala, conectar a transmissão
-    socket.on('request-stream-connection', (data) => {
-        if(localStream) {
-            createPeerConnection(data.senderSocketId, true);
-        }
-    });
+    function stopScreenShare() {
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      removeScreenStream(username);
+
+      Object.keys(peerConnections).forEach(socketId => {
+        peerConnections[socketId].close();
+        delete peerConnections[socketId];
+      });
+
+      const shareBtn = document.getElementById('stage-share-btn');
+      shareBtn.classList.remove('active-share');
+    }
 
     function createPeerConnection(targetSocketId, isInitiator) {
+      if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
+
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnections[targetSocketId] = pc;
 
-      // Adiciona o seu stream local para o peer
       if (localStream) {
         localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
       }
 
-      pc.onicecandidate = e => { if (e.candidate) socket.emit('webrtc-candidate', { targetSocketId, candidate: e.candidate }); };
-      pc.ontrack = e => { renderStream(targetSocketId, e.streams[0]); };
+      pc.ontrack = (event) => {
+        addScreenStream(targetSocketId, event.streams[0]);
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('webrtc-candidate', { targetSocketId, candidate: event.candidate });
+        }
+      };
 
       if (isInitiator) {
-        pc.createOffer().then(o => pc.setLocalDescription(o)).then(() => socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription }));
+        pc.createOffer().then(offer => pc.setLocalDescription(offer)).then(() => {
+          socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
+        }).catch(err => console.error("Erro no offer:", err));
       }
+
       return pc;
     }
 
-    function renderStream(userId, stream) {
-      const container = document.getElementById('streams-container');
-      let card = document.getElementById(`stream-${userId}`);
-      if (!card) {
-        card = document.createElement('div');
-        card.id = `stream-${userId}`;
-        card.className = 'screen-stream-card';
-        card.innerHTML = `<video autoplay playsinline ${userId === username ? 'muted' : ''}></video>`;
-        container.appendChild(card);
-      }
-      card.querySelector('video').srcObject = stream;
-    }
-
-    // Sinalização WebRTC (Repassar ofertas/respostas)
     socket.on('webrtc-offer', async (data) => {
-        const pc = createPeerConnection(data.senderSocketId, false);
-        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const ans = await pc.createAnswer();
-        await pc.setLocalDescription(ans);
-        socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer: ans });
+      const pc = createPeerConnection(data.senderSocketId, false);
+      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer });
     });
 
-    socket.on('webrtc-answer', async (d) => await peerConnections[d.senderSocketId].setRemoteDescription(new RTCSessionDescription(d.answer)));
-    socket.on('webrtc-candidate', (d) => peerConnections[d.senderSocketId].addIceCandidate(new RTCIceCandidate(d.candidate)));
+    socket.on('webrtc-answer', async (data) => {
+      const pc = peerConnections[data.senderSocketId];
+      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+    });
 
-    function stopScreenShare() {
-      if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-      socket.emit('update-streaming-status', { channelId: connectedVoiceChannel, isStreaming: false });
-      // Limpar peers...
+    socket.on('webrtc-candidate', async (data) => {
+      const pc = peerConnections[data.senderSocketId];
+      if (pc) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    });
+
+    function addScreenStream(user, stream) {
+      activeStreams[user] = stream;
+      renderStreamsContainer();
     }
+
+    function removeScreenStream(user) {
+      delete activeStreams[user];
+      renderStreamsContainer();
+    }
+
+    function renderStreamsContainer() {
+      const container = document.getElementById('streams-container');
+      container.innerHTML = '';
+      const keys = Object.keys(activeStreams);
+
+      if (keys.length === 0) {
+        container.style.display = 'none';
+        return;
+      }
+
+      container.style.display = 'flex';
+      keys.forEach(userKey => {
+        const card = document.createElement('div');
+        card.className = 'screen-stream-card';
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.playsinline = true;
+        video.muted = (userKey === username);
+        video.srcObject = activeStreams[userKey];
+
+        const badge = document.createElement('div');
+        badge.className = 'screen-user-badge';
+        badge.textContent = `Transmissão de ${userKey}`;
+
+        card.appendChild(video);
+        card.appendChild(badge);
+        container.appendChild(card);
+      });
+    }
+
+    function sendTextMessage(e) {
+      e.preventDefault();
+      const input = document.getElementById('input');
+      if (!input.value.trim() || !activeChannel) return;
+
+      const now = new Date();
+      socket.emit('chat-message', { 
+        room: activeChannel, 
+        message: input.value, 
+        user: username,
+        avatarUrl: userAvatarUrl,
+        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: now.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' })
+      });
+      input.value = '';
+    }
+
+    socket.on('update-voice-users', (data) => {
+      voiceChannelUsers = data;
+      renderChannels();
+      renderStageUsers();
+    });
+
+    let lastRenderedDate = "";
+    socket.on('chat-message', (data) => {
+      if (data.room === activeChannel) {
+        const chatList = document.getElementById('chat-messages-list');
+        const msgDate = data.date || "Hoje";
+        if (lastRenderedDate !== msgDate) {
+          lastRenderedDate = msgDate;
+          const dateDiv = document.createElement('div');
+          dateDiv.className = 'chat-date-separator';
+          dateDiv.innerHTML = `<span class="chat-date-badge">${msgDate}</span>`;
+          chatList.appendChild(dateDiv);
+        }
+
+        const div = document.createElement('div');
+        div.className = 'chat-message-item';
+        const avatarStyle = data.avatarUrl ? `background-image: url(${data.avatarUrl});` : `background: ${getUserAvatarGradient(data.user)};`;
+        const initialText = data.avatarUrl ? '' : data.user.charAt(0).toUpperCase();
+
+        div.innerHTML = `
+          <div class="chat-msg-avatar" style="${avatarStyle}">${initialText}</div>
+          <div class="chat-msg-body">
+            <div class="chat-msg-header">
+              <span class="chat-msg-author">${data.user}</span>
+              <span class="chat-msg-time">${data.time || 'Agora'}</span>
+            </div>
+            <div class="chat-msg-text">${data.message}</div>
+          </div>
+        `;
+        chatList.appendChild(div);
+        chatList.scrollTop = chatList.scrollHeight;
+      }
+    });
   </script>
 </body>
 </html>
