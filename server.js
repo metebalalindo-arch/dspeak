@@ -26,9 +26,9 @@ const WAITING_VOICE_ROOM = 'waiting-room';
 const WAITING_TEXT_ROOM = 'waiting-room-text';
 const DEFAULT_CHANNELS = [
   { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
-  { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true },
   { id: WAITING_TEXT_ROOM, name: 'sala-de-espera', type: 'text', undeletable: true, locked: true },
-  { id: WAITING_VOICE_ROOM, name: 'Sala de Espera', type: 'voice', undeletable: true, locked: true }
+  { id: WAITING_VOICE_ROOM, name: 'Sala de Espera', type: 'voice', undeletable: true, locked: true },
+  { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
 ];
 
 let channels = DEFAULT_CHANNELS;
@@ -46,6 +46,18 @@ try {
 DEFAULT_CHANNELS.forEach(defCh => {
   if (!channels.some(c => c.id === defCh.id)) channels.push({ ...defCh });
 });
+
+// Corrige a ordem em servidores que já tinham channels.json salvo de antes: a Sala de
+// Espera (voz) sempre deve aparecer ACIMA do Lobby na lista.
+(function reorderWaitingRoomBeforeLobby() {
+  const waitIdx = channels.findIndex(c => c.id === WAITING_VOICE_ROOM);
+  const lobbyIdx = channels.findIndex(c => c.id === 'lobby');
+  if (waitIdx !== -1 && lobbyIdx !== -1 && waitIdx > lobbyIdx) {
+    const [waitingRoomChannel] = channels.splice(waitIdx, 1);
+    const newLobbyIdx = channels.findIndex(c => c.id === 'lobby');
+    channels.splice(newLobbyIdx, 0, waitingRoomChannel);
+  }
+})();
 
 function saveChannels() {
   try {
