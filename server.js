@@ -6,7 +6,13 @@ const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// pingTimeout mais alto do que o padrão: dá mais tempo pro cliente responder antes de
+// ser considerado desconectado — ajuda bastante em celular (tela travada/app em
+// segundo plano, que o navegador desacelera bastante) e Wi-Fi instável.
+const io = new Server(server, {
+  pingTimeout: 60000,
+  pingInterval: 25000
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
