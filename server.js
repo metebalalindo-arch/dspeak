@@ -163,20 +163,36 @@ io.on('connection', (socket) => {
     if (!name || (type !== 'text' && type !== 'voice')) return;
 
     const id = name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
-    channels.push({ id, name, type });
+    const channel = { id, name, type };
+    if (type === 'voice') {
+      const userLimit = parseInt(data && data.userLimit, 10);
+      channel.userLimit = (Number.isFinite(userLimit) && userLimit > 0) ? userLimit : 0; // 0 = sem limite
+      channel.noAudio = !!(data && data.noAudio); // sala silenciosa (tipo "AFK")
+    }
+    channels.push(channel);
     saveChannels();
     io.emit('channels-sync', channels);
   });
 
+  // Renomeia e/ou ajusta limite de pessoas e "sala silenciosa" de um canal.
   socket.on('rename-channel', (data) => {
     const channelId = data && data.channelId;
-    const newName = String(data && data.newName || '').trim();
-    if (!newName) return;
-
     const ch = channels.find(c => c.id === channelId);
-    if (!ch || ch.locked) return; // canais travados (ex: "geral") não podem ser renomeados
+    if (!ch) return;
 
-    ch.name = newName;
+    const newName = String(data && data.newName || '').trim();
+    if (newName && !ch.locked) ch.name = newName; // canais travados (ex: "geral") não podem ser renomeados
+
+    if (ch.type === 'voice') {
+      if (data && Object.prototype.hasOwnProperty.call(data, 'userLimit')) {
+        const userLimit = parseInt(data.userLimit, 10);
+        ch.userLimit = (Number.isFinite(userLimit) && userLimit > 0) ? userLimit : 0;
+      }
+      if (data && Object.prototype.hasOwnProperty.call(data, 'noAudio')) {
+        ch.noAudio = !!data.noAudio;
+      }
+    }
+
     saveChannels();
     io.emit('channels-sync', channels);
   });
@@ -196,6 +212,15 @@ io.on('connection', (socket) => {
   socket.on('join-voice-room', (data) => {
     const { channelId, username, avatarUrl } = data;
     if (!voiceUsers[channelId]) voiceUsers[channelId] = [];
+
+    const alreadyThere = voiceUsers[channelId].some(u => u.socketId === socket.id);
+    const channelDef = channels.find(c => c.id === channelId);
+    const limit = channelDef ? (channelDef.userLimit || 0) : 0;
+
+    if (!alreadyThere && limit > 0 && voiceUsers[channelId].length >= limit) {
+      socket.emit('voice-room-full', { channelId, name: channelDef ? channelDef.name : channelId, limit });
+      return;
+    }
 
     voiceUsers[channelId] = voiceUsers[channelId].filter(u => u.socketId !== socket.id);
     voiceUsers[channelId].push({
