@@ -1984,8 +1984,20 @@
     });
 
     function connectVoice(channel) {
-      if (connectedVoiceChannel && connectedVoiceChannel !== channel.id) {
+      const isSwitchingRoom = connectedVoiceChannel && connectedVoiceChannel !== channel.id;
+      if (isSwitchingRoom) {
         socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
+
+        // Fecha e limpa TUDO da sala anterior antes de entrar na nova — sem isso,
+        // conexões WebRTC antigas ficavam penduradas, causando áudio pela metade
+        // (só ouvindo alguns, ou só sendo ouvido por alguns) até dar F5.
+        Object.keys(peerConnections).forEach(id => { peerConnections[id].close(); delete peerConnections[id]; });
+        Object.keys(peerAudioEls).forEach(removeRemoteMicAudio);
+        micSenders = {};
+        liveStreamers = {};
+        watchedStreams = {};
+        activeStreams = {};
+        renderStreamsContainer();
       }
       connectedVoiceChannel = channel.id;
       currentRoomIsSilent = !!channel.noAudio;
