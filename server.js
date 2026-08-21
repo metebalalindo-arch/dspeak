@@ -437,6 +437,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start-streaming', (channelId) => {
+    if (socket.role === 'guest' || channelId === WAITING_VOICE_ROOM) return;
     if (!activeRoomStreams[channelId]) activeRoomStreams[channelId] = [];
     if (!activeRoomStreams[channelId].includes(socket.id)) {
       activeRoomStreams[channelId].push(socket.id);
