@@ -461,12 +461,11 @@ io.on('connection', (socket) => {
     io.to(data.targetSocketId).emit('watch-stream-requested', { requesterSocketId: socket.id });
   });
 
-  // O espectador fechou a transmissão do seu lado — avisa quem está transmitindo
-  // pra ele tirar a faixa de vídeo daquela ligação específica. Sem isso, da próxima
-  // vez que o espectador clicasse em "Assistir" de novo, quem transmite achava que
-  // já estava mandando (a faixa nunca tinha sido removida) e não mandava nada.
-  socket.on('stop-watching-stream', (data) => {
-    io.to(data.targetSocketId).emit('viewer-stopped-watching', { viewerSocketId: socket.id });
+  // Reset completo da ligação de voz/vídeo com uma pessoa específica — usado ao
+  // fechar uma transmissão, pra garantir que a próxima vez comece limpa (sem
+  // nenhum estado velho grudado), igual já acontecia ao trocar de sala e voltar.
+  socket.on('reset-peer-connection', (data) => {
+    io.to(data.targetSocketId).emit('peer-connection-reset', { requesterSocketId: socket.id });
   });
 
   socket.on('webrtc-offer', (data) => {
