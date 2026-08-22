@@ -2544,13 +2544,23 @@
       return pc;
     }
 
-    socket.on('webrtc-offer', async (data) => {
+    async function handleIncomingOffer(data, retriesLeft) {
       const pc = createPeerConnection(data.senderSocketId);
 
       const offerCollision = pc.makingOffer || pc.signalingState !== "stable";
       const ignoreOffer = !pc.polite && offerCollision;
       console.log(`[WebRTC] offer recebida de ${data.senderSocketId} (signalingState=${pc.signalingState}, colisão=${offerCollision}, ignorando=${ignoreOffer})`);
-      if (ignoreOffer) return;
+      if (ignoreOffer) {
+        // Em vez de simplesmente descartar (isso podia deixar a outra pessoa sem
+        // resposta nenhuma pra sempre, caso a "colisão" fosse só um falso positivo
+        // de tempo), tenta reprocessar essa mesma oferta daqui a pouco, depois que
+        // a negociação concorrente tiver tido chance de terminar.
+        if (retriesLeft > 0) {
+          console.log(`[WebRTC] oferta ignorada por colisão — tentando de novo em instantes (restam ${retriesLeft} tentativas)`);
+          setTimeout(() => handleIncomingOffer(data, retriesLeft - 1), 400);
+        }
+        return;
+      }
 
       if (offerCollision) {
         await Promise.all([
@@ -2567,7 +2577,9 @@
       await pc.setLocalDescription(answer);
       console.log(`[WebRTC] mandando answer pra ${data.senderSocketId}`);
       socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer: pc.localDescription });
-    });
+    }
+
+    socket.on('webrtc-offer', (data) => handleIncomingOffer(data, 3));
 
     socket.on('webrtc-answer', async (data) => {
       const pc = peerConnections[data.senderSocketId];
