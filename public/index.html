@@ -2548,9 +2548,15 @@
         const finish = (track) => { if (!settled) { settled = true; resolve(track); } };
 
         window.electronAudioAPI.onUseProcessAudio(async (processId) => {
+          console.log(`[ProcessAudio] Aviso recebido pra usar áudio do processo ${processId}`);
           try {
             activePcmBridge = new PCMToMediaStreamBridge();
+            let chunkCountRenderer = 0;
             window.electronAudioAPI.onProcessAudioChunk((chunk) => {
+              chunkCountRenderer++;
+              if (chunkCountRenderer <= 3) {
+                console.log(`[ProcessAudio] Pedaço #${chunkCountRenderer} chegou no navegador, tamanho: ${chunk ? chunk.byteLength || chunk.length : 'null'}`);
+              }
               if (activePcmBridge) activePcmBridge.pushChunk(chunk);
             });
             const result = await window.electronAudioAPI.startProcessAudioCapture(processId);
