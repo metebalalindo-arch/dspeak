@@ -344,7 +344,7 @@ io.on('connection', (socket) => {
   socket.on('assign-role', (data) => {
     const targetUsername = data && data.targetUsername;
     const newRole = data && data.newRole;
-    const validRoles = ['guest', 'member', 'moderator'];
+    const validRoles = ['guest', 'member', 'moderator', 'owner'];
     if (!validRoles.includes(newRole)) return;
 
     const targetKey = keyOf(targetUsername);
@@ -356,7 +356,11 @@ io.on('connection', (socket) => {
       socket.role === 'moderator' && newRole === 'member' && currentTargetRole === 'guest';
 
     if (!isOwner && !isModPromotingGuestToMember) return;
-    if (currentTargetRole === 'owner') return; // ninguém rebaixa o Owner por aqui
+    // Só o próprio Owner pode mexer em outro Owner (inclusive dar ou tirar o cargo).
+    if (currentTargetRole === 'owner' && !isOwner) return;
+    // Só o Owner pode conceder o cargo de Owner (Mod nunca, mesmo que a checagem
+    // acima já bloqueie isso indiretamente — reforça a intenção explicitamente).
+    if (newRole === 'owner' && !isOwner) return;
 
     roles[targetKey] = newRole;
     saveRoles();
@@ -375,9 +379,10 @@ io.on('connection', (socket) => {
     const targetSocketId = data && data.targetSocketId;
     const channelId = data && data.channelId;
     const targetSocket = io.sockets.sockets.get(targetSocketId);
-    if (targetSocket) {
-      targetSocket.emit('force-join-voice', { channelId });
-    }
+    if (!targetSocket) return;
+    // Moderador não pode puxar um Owner — só o próprio Owner mexe em outro Owner.
+    if (targetSocket.role === 'owner' && socket.role !== 'owner') return;
+    targetSocket.emit('force-join-voice', { channelId });
   });
 
   socket.on('join-voice-room', (data) => {
