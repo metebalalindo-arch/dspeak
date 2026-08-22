@@ -245,6 +245,9 @@
       border: 1px solid rgba(255, 85, 0, 0.25); z-index: 5; transition: box-shadow 0.2s;
     }
     .stream-volume-control.audio-blocked { box-shadow: 0 0 0 2px #ff5500, 0 0 14px rgba(255, 85, 0, 0.6); animation: pulse-live 1.5s infinite; }
+
+    .stream-unblock-overlay { position: absolute; inset: 0; background: rgba(8, 9, 12, 0.6); display: none; align-items: center; justify-content: center; cursor: pointer; z-index: 20; }
+    .stream-unblock-btn { background: #ff5500; color: #fff; font-weight: 700; padding: 14px 24px; border-radius: 10px; font-size: 15px; box-shadow: 0 8px 28px rgba(255, 85, 0, 0.6); animation: pulse-live 1.5s infinite; }
     .stream-mute-toggle-btn { background: transparent; border: none; cursor: pointer; padding: 2px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
     .stream-mute-toggle-btn svg { width: 18px; height: 18px; stroke: #fff; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
     .stream-mute-toggle-btn.is-muted svg { stroke: #ff3333; }
@@ -1893,6 +1896,16 @@
     }
 
     function watchLiveStream(targetSocketId) {
+      // Já pedimos (ou já estamos vendo) essa transmissão — um clique duplicado (ex:
+      // clique duplo sem querer, antes da tela trocar o botão) não deve mandar um
+      // pedido novo. Sem essa trava, o segundo pedido não gerava resposta nenhuma
+      // (quem transmite já estava mandando a faixa) e o alarme de segurança disparava
+      // um aviso de erro falso, mesmo com o vídeo já funcionando certinho.
+      if (watchedStreams[targetSocketId]) {
+        console.log(`[Stream] já estamos assistindo/pedimos ${targetSocketId} — ignorando clique repetido`);
+        return;
+      }
+
       // A live só existe dentro da sala de quem está transmitindo — se estivermos em
       // outro lugar (ou em nenhuma sala), primeiro nos move pra lá, igual ao Discord.
       const streamerChannelId = findVoiceChannelIdForSocket(targetSocketId);
@@ -2670,6 +2683,7 @@
         if (video.setSinkId && selectedSpeakerId && !isOwnPreview) video.setSinkId(selectedSpeakerId).catch(() => {});
 
         let audioBlocked = false;
+        let bigPlayOverlay = null;
 
         // Controle único de volume/mudo (só faz sentido pra tela de quem NÃO é você,
         // já que a sua própria prévia sempre fica muda pra evitar eco).
@@ -2700,7 +2714,11 @@
           const playAfterGesture = () => {
             audioBlocked = false;
             volumeControl.classList.remove('audio-blocked');
+            if (bigPlayOverlay) bigPlayOverlay.style.display = 'none';
+            video.muted = false;
+            video.volume = savedVolume || 1;
             video.play().catch(() => {});
+            updateMuteIcon();
           };
 
           muteBtn.onclick = (e) => {
@@ -2731,14 +2749,32 @@
           volumeControl.appendChild(volumeSlider);
           updateMuteIcon();
 
+          // Aviso GRANDE cobrindo o vídeo inteiro — clicável em qualquer lugar — pra
+          // quando o navegador bloquear o autoplay com som. Antes isso só mostrava uma
+          // borda discreta no controle de volume, fácil de não perceber (parecia que a
+          // transmissão simplesmente não tinha conectado, quando na verdade tinha).
+          bigPlayOverlay = document.createElement('div');
+          bigPlayOverlay.className = 'stream-unblock-overlay';
+          bigPlayOverlay.innerHTML = `<div class="stream-unblock-btn">🔊 Clique para ativar o som</div>`;
+          bigPlayOverlay.style.display = 'none';
+          bigPlayOverlay.onclick = (e) => {
+            e.stopPropagation();
+            playAfterGesture();
+          };
+
           // Navegadores costumam bloquear autoplay COM som sem interação do usuário.
-          // Nesse caso, avisamos visualmente que basta clicar no botão pra liberar.
+          // Se isso acontecer, tenta tocar MUDO primeiro (pelo menos a imagem já aparece
+          // na hora) e mostra o aviso grande só pra ativar o som.
           const tryPlay = () => {
             const playPromise = video.play();
             if (playPromise) {
               playPromise.catch(() => {
+                video.muted = true;
+                video.play().catch(() => {});
                 audioBlocked = true;
                 volumeControl.classList.add('audio-blocked');
+                bigPlayOverlay.style.display = 'flex';
+                updateMuteIcon();
               });
             }
           };
@@ -2768,6 +2804,7 @@
 
         card.appendChild(video);
         card.appendChild(badge);
+        if (bigPlayOverlay) card.appendChild(bigPlayOverlay);
 
         // Item 8: botão pra fechar a transmissão de um amigo (só sua visualização;
         // quem está transmitindo continua ao vivo pra quem ainda estiver assistindo).
