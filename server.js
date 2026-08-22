@@ -3,6 +3,8 @@ const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -18,6 +20,46 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// ---------- Upload de arquivos no chat (até 10MB, tipo o "clipzinho" do Discord) ----------
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOADS_DIR));
+
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+    filename: (req, file, cb) => {
+      // Nome aleatório no disco (evita colisão/sobrescrita), mas guardamos o nome
+      // original pra mostrar/baixar com o nome de verdade depois.
+      const randomName = crypto.randomBytes(16).toString('hex');
+      const ext = path.extname(file.originalname);
+      cb(null, randomName + ext);
+    }
+  }),
+  limits: { fileSize: MAX_UPLOAD_SIZE }
+});
+
+app.post('/upload', (req, res) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const isTooBig = err.code === 'LIMIT_FILE_SIZE';
+      return res.status(isTooBig ? 413 : 400).json({
+        error: isTooBig ? 'Arquivo maior que 10MB.' : 'Não foi possível enviar o arquivo.'
+      });
+    }
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo recebido.' });
+
+    res.json({
+      url: `/uploads/${req.file.filename}`,
+      filename: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
+  });
 });
 
 const voiceUsers = {};
