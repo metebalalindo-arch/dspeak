@@ -32,8 +32,8 @@ const WAITING_VOICE_ROOM = 'waiting-room';
 const WAITING_TEXT_ROOM = 'waiting-room-text';
 const DEFAULT_CHANNELS = [
   { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
-  { id: WAITING_TEXT_ROOM, name: 'sala-de-espera', type: 'text', undeletable: true, locked: true },
-  { id: WAITING_VOICE_ROOM, name: 'Sala de Espera', type: 'voice', undeletable: true, locked: true },
+  { id: WAITING_TEXT_ROOM, name: 'sala-de-espera', type: 'text' },
+  { id: WAITING_VOICE_ROOM, name: 'Sala de Espera', type: 'voice' },
   { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
 ];
 
@@ -51,6 +51,13 @@ try {
 // os canais fixos que estiverem faltando, sem mexer no resto que já existia.
 DEFAULT_CHANNELS.forEach(defCh => {
   if (!channels.some(c => c.id === defCh.id)) channels.push({ ...defCh });
+});
+
+// O cargo Guest foi removido, então a Sala de Espera não trava mais ninguém — deixa
+// de ser um canal travado (Owner pode renomear ou excluir se não quiser mais usá-la).
+[WAITING_TEXT_ROOM, WAITING_VOICE_ROOM].forEach(id => {
+  const ch = channels.find(c => c.id === id);
+  if (ch) { delete ch.locked; delete ch.undeletable; }
 });
 
 // Corrige a ordem em servidores que já tinham channels.json salvo de antes: a Sala de
@@ -99,6 +106,15 @@ try {
   roles = {};
 }
 
+// O cargo Guest foi removido — quem já estava como Guest vira Membro automaticamente.
+let migratedGuests = false;
+Object.keys(roles).forEach(key => {
+  if (roles[key] === 'guest') {
+    roles[key] = 'member';
+    migratedGuests = true;
+  }
+});
+
 function saveRoles() {
   try {
     fs.writeFileSync(ROLES_FILE, JSON.stringify(roles, null, 2));
@@ -107,19 +123,21 @@ function saveRoles() {
   }
 }
 
+if (migratedGuests) saveRoles();
+
 function keyOf(username) {
   return String(username || '').trim().toLowerCase();
 }
 
-// Retorna o cargo de um usuário, criando-o como 'guest' (padrão pra gente nova) na
-// primeira vez que aparece.
+// Retorna o cargo de um usuário, criando-o como 'member' (padrão pra gente nova) na
+// primeira vez que aparece — não existe mais o cargo Guest.
 function resolveRole(username) {
   const key = keyOf(username);
-  if (!key) return 'guest';
+  if (!key) return 'member';
   if (roles[key]) return roles[key];
-  roles[key] = 'guest';
+  roles[key] = 'member';
   saveRoles();
-  return 'guest';
+  return 'member';
 }
 
 function findSocketsByUsername(username) {
@@ -215,8 +233,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join-room', (roomId) => {
-    // Guest só pode acompanhar o texto da sala de espera.
-    if (socket.role === 'guest' && roomId !== WAITING_TEXT_ROOM) return;
     socket.join(roomId);
   });
 
@@ -262,9 +278,6 @@ io.on('connection', (socket) => {
       }
       return; // nunca vira mensagem de chat de verdade
     }
-
-    // Guest só pode falar na sala de espera.
-    if (socket.role === 'guest' && data.room !== WAITING_TEXT_ROOM) return;
 
     const entry = { ...data, role: socket.role, timestamp: Date.now() };
     if (!messages[data.room]) messages[data.room] = [];
@@ -339,28 +352,20 @@ io.on('connection', (socket) => {
   });
 
   // ---------- Gestão de cargos ----------
-  // Owner: pode dar qualquer cargo (guest / member / moderator) a qualquer um.
-  // Moderador: só pode promover Guest -> Membro.
+  // Só o Owner pode dar cargos agora (member / moderator / owner).
   socket.on('assign-role', (data) => {
     const targetUsername = data && data.targetUsername;
     const newRole = data && data.newRole;
-    const validRoles = ['guest', 'member', 'moderator', 'owner'];
+    const validRoles = ['member', 'moderator', 'owner'];
     if (!validRoles.includes(newRole)) return;
 
     const targetKey = keyOf(targetUsername);
     if (!targetKey) return;
-    const currentTargetRole = roles[targetKey] || 'guest';
+    const currentTargetRole = roles[targetKey] || 'member';
 
     const isOwner = socket.role === 'owner';
-    const isModPromotingGuestToMember =
-      socket.role === 'moderator' && newRole === 'member' && currentTargetRole === 'guest';
-
-    if (!isOwner && !isModPromotingGuestToMember) return;
-    // Só o próprio Owner pode mexer em outro Owner (inclusive dar ou tirar o cargo).
-    if (currentTargetRole === 'owner' && !isOwner) return;
-    // Só o Owner pode conceder o cargo de Owner (Mod nunca, mesmo que a checagem
-    // acima já bloqueie isso indiretamente — reforça a intenção explicitamente).
-    if (newRole === 'owner' && !isOwner) return;
+    if (!isOwner) return;
+    if (currentTargetRole === 'owner' && !isOwner) return; // só o Owner mexe em outro Owner
 
     roles[targetKey] = newRole;
     saveRoles();
@@ -387,14 +392,6 @@ io.on('connection', (socket) => {
 
   socket.on('join-voice-room', (data) => {
     let { channelId, username, avatarUrl } = data;
-
-    // Guest é travado na sala de espera até alguém dar um cargo a ele.
-    if (socket.role === 'guest' && channelId !== WAITING_VOICE_ROOM) {
-      channelId = WAITING_VOICE_ROOM;
-      socket.emit('guest-locked', {
-        message: 'Você está como Guest e precisa aguardar na Sala de Espera até um Moderador ou Owner liberar seu acesso.'
-      });
-    }
 
     if (!voiceUsers[channelId]) voiceUsers[channelId] = [];
 
@@ -442,7 +439,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start-streaming', (channelId) => {
-    if (socket.role === 'guest' || channelId === WAITING_VOICE_ROOM) return;
+    if (channelId === WAITING_VOICE_ROOM) return;
     if (!activeRoomStreams[channelId]) activeRoomStreams[channelId] = [];
     if (!activeRoomStreams[channelId].includes(socket.id)) {
       activeRoomStreams[channelId].push(socket.id);
