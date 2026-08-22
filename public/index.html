@@ -2518,44 +2518,74 @@
       else stopScreenShare();
     }
 
-    // ---------- Áudio de processo específico (experimental, só no app desktop) ----------
+    // ---------- Áudio de processo específico (só no app desktop) ----------
     // Remonta os pedaços de áudio "cru" (PCM) que o Electron manda em tempo real numa
     // faixa de áudio de verdade, que dá pra juntar com o vídeo da transmissão. Só existe
-    // quando rodando dentro do app desktop com a captura por processo disponível.
+    // quando rodando dentro do app desktop, com o helper de áudio (dspeak-audio.exe)
+    // compilado e funcionando.
     let activePcmBridge = null;
+    let currentChunkHandler = null; // guardado pra dar pra remover certinho depois
+    let currentErrorHandler = null;
 
     class PCMToMediaStreamBridge {
       constructor(sampleRate) {
         this.ctx = new AudioContext(sampleRate ? { sampleRate } : undefined);
         this.dest = this.ctx.createMediaStreamDestination();
-        this.queue = [];
-        const bufferSize = 4096;
-        // ScriptProcessorNode é tecnicamente "antigo", mas ainda funciona em todo
-        // navegador atual e é bem mais simples de implementar rápido que um AudioWorklet.
-        this.processor = this.ctx.createScriptProcessor(bufferSize, 0, 2);
-        this.processor.onaudioprocess = (e) => {
-          const outL = e.outputBuffer.getChannelData(0);
-          const outR = e.outputBuffer.getChannelData(1);
-          for (let i = 0; i < outL.length; i++) {
-            const sample = this.queue.length ? this.queue.shift() : 0;
-            outL[i] = sample;
-            outR[i] = sample;
-          }
-        };
-        this.processor.connect(this.dest);
+        this.node = null;
+        this.ready = this._setup();
       }
 
-      // Espera receber PCM 16-bit assinado, little-endian (o formato mais comum de captura
-      // do Windows). Se o áudio sair distorcido/errado na prática, é bem provável que o
-      // formato real seja outro (ex: 32-bit float, ou outra taxa de amostragem) — isso vai
-      // precisar de ajuste depois de testar de verdade.
-      pushChunk(uint8Array) {
+      async _setup() {
+        // Define o "processador" de áudio (AudioWorklet) que fica esvaziando uma fila
+        // de amostras continuamente — é a forma moderna/recomendada de tocar áudio
+        // gerado em tempo real, no lugar do antigo ScriptProcessorNode.
+        const workletCode = `
+          class PCMWorkletProcessor extends AudioWorkletProcessor {
+            constructor() {
+              super();
+              this.queue = [];
+              this.port.onmessage = (e) => {
+                for (let i = 0; i < e.data.length; i++) this.queue.push(e.data[i]);
+              };
+            }
+            process(inputs, outputs) {
+              const output = outputs[0];
+              for (let ch = 0; ch < output.length; ch++) {
+                const data = output[ch];
+                for (let i = 0; i < data.length; i++) {
+                  data[i] = this.queue.length ? this.queue.shift() : 0;
+                }
+              }
+              return true;
+            }
+          }
+          registerProcessor('pcm-worklet-processor', PCMWorkletProcessor);
+        `;
+        const blob = new Blob([workletCode], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
         try {
+          await this.ctx.audioWorklet.addModule(url);
+          this.node = new AudioWorkletNode(this.ctx, 'pcm-worklet-processor', { outputChannelCount: [2] });
+          this.node.connect(this.dest);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      }
+
+      // Espera receber PCM 16-bit assinado, little-endian, 48kHz, estéreo (o formato
+      // que o dspeak-audio.exe escreve). Se o áudio sair errado na prática (velocidade,
+      // distorção), é bem provável que precise ajustar esses parâmetros junto do .cpp.
+      async pushChunk(uint8Array) {
+        try {
+          await this.ready;
+          if (!this.node) return;
           const view = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
           const sampleCount = Math.floor(uint8Array.byteLength / 2);
+          const floatSamples = new Float32Array(sampleCount);
           for (let i = 0; i < sampleCount; i++) {
-            this.queue.push(view.getInt16(i * 2, true) / 32768);
+            floatSamples[i] = view.getInt16(i * 2, true) / 32768;
           }
+          this.node.port.postMessage(floatSamples, [floatSamples.buffer]);
         } catch (err) {
           console.error('[ProcessAudio] Erro ao processar pedaço de áudio:', err);
         }
@@ -2563,7 +2593,7 @@
 
       getTrack() { return this.dest.stream.getAudioTracks()[0]; }
       stop() {
-        try { this.processor.disconnect(); this.ctx.close(); } catch (e) {}
+        try { if (this.node) this.node.disconnect(); this.ctx.close(); } catch (e) {}
       }
     }
 
@@ -2572,26 +2602,36 @@
     // esse tipo de áudio (ex: usuário não marcou essa opção, ou está no navegador comum).
     function waitForProcessAudioTrack() {
       if (!window.electronAudioAPI) return Promise.resolve(null);
+
+      // Remove qualquer listener de uma transmissão anterior antes de criar um novo —
+      // sem isso, cada transmissão nova ficava empilhando um listener em cima do
+      // anterior, todos ainda "vivos" e recebendo dados ao mesmo tempo.
+      if (currentChunkHandler) { window.electronAudioAPI.offProcessAudioChunk(currentChunkHandler); currentChunkHandler = null; }
+      if (currentErrorHandler) { window.electronAudioAPI.offProcessAudioError(currentErrorHandler); currentErrorHandler = null; }
+
       return new Promise((resolve) => {
         let settled = false;
         const finish = (track) => { if (!settled) { settled = true; resolve(track); } };
+
+        currentErrorHandler = ({ message, permanent }) => {
+          console.error(`[ProcessAudio] Erro (permanente=${permanent}):`, message);
+          if (permanent) showToast('Não foi possível capturar o áudio desse programa. Tente "Sem áudio" ou "Sistema inteiro".');
+        };
+        window.electronAudioAPI.onProcessAudioError(currentErrorHandler);
 
         window.electronAudioAPI.onUseProcessAudio(async (processId) => {
           console.log(`[ProcessAudio] Aviso recebido pra usar áudio do processo ${processId}`);
           try {
             activePcmBridge = new PCMToMediaStreamBridge();
-            let chunkCountRenderer = 0;
-            window.electronAudioAPI.onProcessAudioChunk((chunk) => {
-              chunkCountRenderer++;
-              if (chunkCountRenderer <= 3) {
-                console.log(`[ProcessAudio] Pedaço #${chunkCountRenderer} chegou no navegador, tamanho: ${chunk ? chunk.byteLength || chunk.length : 'null'}`);
-              }
+            currentChunkHandler = (chunk) => {
               if (activePcmBridge) activePcmBridge.pushChunk(chunk);
-            });
+            };
+            window.electronAudioAPI.onProcessAudioChunk(currentChunkHandler);
+
             const result = await window.electronAudioAPI.startProcessAudioCapture(processId);
             if (!result || !result.ok) {
               console.error('[ProcessAudio] Falha ao iniciar captura:', result && result.error);
-              showToast('Não foi possível capturar o áudio só dessa janela. Transmitindo sem áudio de processo específico.');
+              showToast('Não foi possível capturar o áudio desse programa. Transmitindo sem áudio de processo específico.');
               finish(null);
               return;
             }
@@ -2711,7 +2751,11 @@
       if (activePcmBridge) {
         activePcmBridge.stop();
         activePcmBridge = null;
-        if (window.electronAudioAPI) window.electronAudioAPI.stopProcessAudioCapture();
+        if (window.electronAudioAPI) {
+          window.electronAudioAPI.stopProcessAudioCapture();
+          if (currentChunkHandler) { window.electronAudioAPI.offProcessAudioChunk(currentChunkHandler); currentChunkHandler = null; }
+          if (currentErrorHandler) { window.electronAudioAPI.offProcessAudioError(currentErrorHandler); currentErrorHandler = null; }
+        }
       }
 
       // Desfaz o mudo automático de "evitar eco" — mas só se a pessoa não tiver
