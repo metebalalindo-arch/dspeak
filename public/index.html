@@ -239,12 +239,23 @@
     }
     .screen-stream-card video { width: 100%; height: 100%; object-fit: contain; }
     .screen-user-badge { position: absolute; top: 12px; left: 12px; background: rgba(12, 13, 16, 0.85); backdrop-filter: blur(8px); padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: bold; color: #fff; border: 1px solid rgba(255, 85, 0, 0.3); }
+    .stream-volume-control,
+    .stream-fullscreen-btn,
+    .stream-close-btn {
+      opacity: 0; pointer-events: none; transition: opacity 0.15s;
+    }
+    .screen-stream-card:hover .stream-volume-control,
+    .screen-stream-card:hover .stream-fullscreen-btn,
+    .screen-stream-card:hover .stream-close-btn {
+      opacity: 1; pointer-events: auto;
+    }
+
     .stream-volume-control {
       position: absolute; bottom: 12px; left: 12px; display: flex; align-items: center; gap: 8px;
       background: rgba(12, 13, 16, 0.85); backdrop-filter: blur(8px); padding: 6px 10px; border-radius: 20px;
-      border: 1px solid rgba(255, 85, 0, 0.25); z-index: 5; transition: box-shadow 0.2s;
+      border: 1px solid rgba(255, 85, 0, 0.25); z-index: 5;
     }
-    .stream-volume-control.audio-blocked { box-shadow: 0 0 0 2px #ff5500, 0 0 14px rgba(255, 85, 0, 0.6); animation: pulse-live 1.5s infinite; }
+    .stream-volume-control.audio-blocked { opacity: 1; pointer-events: auto; box-shadow: 0 0 0 2px #ff5500, 0 0 14px rgba(255, 85, 0, 0.6); animation: pulse-live 1.5s infinite; }
 
     .stream-unblock-overlay { position: absolute; inset: 0; background: rgba(8, 9, 12, 0.6); display: none; align-items: center; justify-content: center; cursor: pointer; z-index: 20; }
     .stream-unblock-btn { background: #ff5500; color: #fff; font-weight: 700; padding: 14px 24px; border-radius: 10px; font-size: 15px; box-shadow: 0 8px 28px rgba(255, 85, 0, 0.6); animation: pulse-live 1.5s infinite; }
@@ -1772,12 +1783,22 @@
       }
     }
 
-    function addMicTrackToPeer(pc, targetSocketId) {
+    function addMicTrackToPeer(pc, targetSocketId, retriesLeft) {
+      if (retriesLeft === undefined) retriesLeft = 6;
       const outStream = getOutgoingMicStream();
       if (!outStream) return;
       const track = outStream.getAudioTracks()[0];
       if (!track) return;
       if (micSenders[targetSocketId]) return;
+
+      // Mesma proteção do vídeo: se a ligação estiver no meio de outra negociação,
+      // espera terminar antes de mexer — evita as duas colidirem, não importa a ordem.
+      if (pc.signalingState !== 'stable') {
+        if (retriesLeft > 0) setTimeout(() => addMicTrackToPeer(pc, targetSocketId, retriesLeft - 1), 300);
+        return;
+      }
+      if (micSenders[targetSocketId]) return; // pode ter sido adicionada enquanto esperava
+
       micSenders[targetSocketId] = pc.addTrack(track, outStream);
     }
 
