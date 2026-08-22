@@ -1956,6 +1956,20 @@
       // Só faz sentido responder se estivermos realmente transmitindo agora.
       if (!localStream) return;
       const pc = createPeerConnection(data.requesterSocketId);
+
+      // Resync à prova de falhas: tira qualquer faixa de tela que já estivesse
+      // nessa ligação antes de recolocar. Assim, um pedido de "Assistir" SEMPRE
+      // gera uma faixa nova de verdade, mesmo que o aviso de "parei de assistir"
+      // de uma vez anterior não tenha chegado a tempo (ou por qualquer outro motivo
+      // os dois lados tenham ficado dessincronizados sobre o que já foi enviado).
+      const localTrackIds = localStream.getTracks().map(t => t.id);
+      pc.getSenders().forEach(sender => {
+        if (sender.track && localTrackIds.includes(sender.track.id)) {
+          console.log(`[Stream] resync: removendo faixa ${sender.track.kind} antes de reenviar pra ${data.requesterSocketId}`);
+          pc.removeTrack(sender);
+        }
+      });
+
       addScreenTracksToPeer(pc);
     });
 
