@@ -334,10 +334,48 @@
     .chat-msg-time { font-size: 11px; color: #8a8f9d; font-weight: 500; }
     .chat-msg-text { font-size: 13px; color: #dbdee1; line-height: 1.4; word-break: break-word; }
 
+    .chat-msg-attachment-image { max-width: 320px; max-height: 320px; border-radius: 10px; margin-top: 6px; cursor: pointer; display: block; border: 1px solid rgba(255,255,255,0.08); }
+    .chat-msg-attachment-file { display: flex; align-items: center; gap: 10px; background: #181b24; border: 1px solid rgba(255, 85, 0, 0.25); border-radius: 10px; padding: 10px 12px; margin-top: 6px; max-width: 320px; text-decoration: none; }
+    .chat-msg-attachment-file:hover { border-color: rgba(255, 85, 0, 0.55); }
+    .chat-msg-attachment-file-icon { width: 36px; height: 36px; border-radius: 6px; background: rgba(255,85,0,0.15); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    .chat-msg-attachment-file-info { flex: 1; min-width: 0; }
+    .chat-msg-attachment-file-name { font-size: 12px; color: #f2f3f5; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-msg-attachment-file-size { font-size: 11px; color: #8a8f9d; }
+    .chat-msg-attachment-file-download { font-size: 11px; color: #ff5500; font-weight: 700; flex-shrink: 0; }
+
     .form-container { padding: 14px 16px; background: transparent; flex-shrink: 0; }
-    .input-wrapper { display: flex; background: #0c0d10; border-radius: 10px; padding: 4px 10px; align-items: center; border: 1px solid rgba(255, 85, 0, 0.2); }
+    .input-wrapper { display: flex; background: #0c0d10; border-radius: 10px; padding: 4px 10px; align-items: center; border: 1px solid rgba(255, 85, 0, 0.2); gap: 4px; }
     .input-wrapper input { flex: 1; padding: 8px 4px; border: none; background: transparent; color: #f2f3f5; font-size: 13px; outline: none; }
-    .input-wrapper button { background: #ff5500; border: none; color: white; padding: 6px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
+    .input-wrapper button[type="submit"] { background: #ff5500; border: none; color: white; padding: 6px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; }
+
+    .input-icon-btn { background: transparent; border: none; color: #8a8f9d; cursor: pointer; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 6px; flex-shrink: 0; }
+    .input-icon-btn:hover { color: #fff; background: rgba(255, 85, 0, 0.15); }
+    .input-icon-btn svg { width: 19px; height: 19px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+    #attachment-preview-bar { padding: 0 16px; }
+    .attachment-preview-chip { display: flex; align-items: center; gap: 10px; background: #181b24; border: 1px solid rgba(255, 85, 0, 0.3); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+    .attachment-preview-chip img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; }
+    .attachment-preview-icon { width: 44px; height: 44px; border-radius: 6px; background: rgba(255,85,0,0.15); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+    .attachment-preview-info { flex: 1; min-width: 0; }
+    .attachment-preview-name { font-size: 12px; color: #f2f3f5; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .attachment-preview-size { font-size: 11px; color: #8a8f9d; }
+    .attachment-preview-remove { background: transparent; border: none; color: #8a8f9d; cursor: pointer; font-size: 18px; padding: 2px 6px; flex-shrink: 0; }
+    .attachment-preview-remove:hover { color: #ff3333; }
+    .attachment-upload-progress { font-size: 11px; color: #ff5500; }
+
+    .emoji-gif-popover { display: none; position: absolute; bottom: 70px; right: 16px; width: 320px; height: 380px; background: #13151b; border: 1px solid rgba(255,85,0,0.35); border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,0.85); z-index: 1500; flex-direction: column; overflow: hidden; }
+    .egp-tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
+    .egp-tab { flex: 1; background: transparent; border: none; color: #8a8f9d; padding: 10px; font-weight: 700; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; }
+    .egp-tab.active { color: #ff5500; border-bottom-color: #ff5500; }
+    .egp-body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; }
+    .egp-emoji-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+    .egp-emoji-btn { background: transparent; border: none; font-size: 20px; padding: 6px; cursor: pointer; border-radius: 6px; line-height: 1; }
+    .egp-emoji-btn:hover { background: rgba(255,85,0,0.15); }
+    .egp-gif-search { background: #0c0d10; border: 1px solid rgba(255,85,0,0.25); border-radius: 8px; padding: 8px 10px; color: #f2f3f5; font-size: 12px; margin-bottom: 8px; outline: none; flex-shrink: 0; }
+    .egp-gif-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; overflow-y: auto; }
+    .egp-gif-grid img { width: 100%; border-radius: 8px; cursor: pointer; display: block; aspect-ratio: 1; object-fit: cover; }
+    .egp-gif-grid img:hover { outline: 2px solid #ff5500; }
+    .egp-gif-empty { grid-column: 1 / -1; color: #8a8f9d; font-size: 12px; text-align: center; padding: 20px 0; }
   </style>
 </head>
 <body>
@@ -743,12 +781,35 @@
       <div id="right-chat-sidebar">
         <div id="chat-messages-list"></div>
 
+        <div id="attachment-preview-bar" style="display:none;"></div>
+
         <form class="form-container" onsubmit="sendTextMessage(event)">
           <div class="input-wrapper">
+            <button type="button" class="input-icon-btn" onclick="triggerFileAttach()" title="Anexar arquivo (até 10MB)">
+              <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+            <input type="file" id="attach-file-input" style="display:none;" onchange="handleAttachFileSelect(event)" />
             <input id="input" autocomplete="off" placeholder="Enviar mensagem..." />
+            <button type="button" class="input-icon-btn" onclick="toggleEmojiGifPicker(event)" title="Emojis e GIFs">
+              <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/></svg>
+            </button>
             <button type="submit">Enviar</button>
           </div>
         </form>
+
+        <div class="emoji-gif-popover" id="emoji-gif-popover" onclick="event.stopPropagation()">
+          <div class="egp-tabs">
+            <button type="button" class="egp-tab active" id="egp-tab-emoji" onclick="switchEmojiGifTab('emoji')">Emojis</button>
+            <button type="button" class="egp-tab" id="egp-tab-gif" onclick="switchEmojiGifTab('gif')">GIFs</button>
+          </div>
+          <div class="egp-body" id="egp-emoji-body">
+            <div class="egp-emoji-grid" id="egp-emoji-grid"></div>
+          </div>
+          <div class="egp-body" id="egp-gif-body" style="display:none;">
+            <input type="text" class="egp-gif-search" id="egp-gif-search" placeholder="Pesquisar GIFs..." oninput="searchGifsDebounced()" />
+            <div class="egp-gif-grid" id="egp-gif-grid"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -1480,6 +1541,7 @@
       document.getElementById('server-menu').style.display = 'none';
       document.getElementById('status-selector-popover').style.display = 'none';
       document.getElementById('user-volume-popover').style.display = 'none';
+      document.getElementById('emoji-gif-popover').style.display = 'none';
     });
 
     function getUserAvatarGradient(name) {
@@ -2942,10 +3004,207 @@
       });
     }
 
+    // ---------- Anexar arquivo (até 10MB) e colar imagem com Ctrl+V ----------
+    const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
+    let pendingAttachment = null; // { url, filename, size, mimetype } depois do upload
+
+    function triggerFileAttach() {
+      document.getElementById('attach-file-input').click();
+    }
+
+    function handleAttachFileSelect(e) {
+      const file = e.target.files[0];
+      if (file) uploadAndPreviewFile(file);
+      e.target.value = '';
+    }
+
+    async function uploadAndPreviewFile(file) {
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        showToast(`"${file.name}" tem mais de 10MB — não dá pra anexar.`);
+        return;
+      }
+
+      renderAttachmentPreview({ filename: file.name, size: file.size, mimetype: file.type, uploading: true });
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch('/upload', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error(errBody.error || 'Falha no upload.');
+        }
+        const uploaded = await res.json();
+        pendingAttachment = uploaded;
+        renderAttachmentPreview(uploaded);
+      } catch (err) {
+        showToast(`Não foi possível anexar "${file.name}". ${err.message || ''}`.trim());
+        clearPendingAttachment();
+      }
+    }
+
+    function renderAttachmentPreview(attachment) {
+      const bar = document.getElementById('attachment-preview-bar');
+      const isImage = attachment.mimetype && attachment.mimetype.startsWith('image/');
+      const safeName = escapeHtml(attachment.filename);
+      const thumb = isImage && !attachment.uploading
+        ? `<img src="${attachment.url}">`
+        : `<div class="attachment-preview-icon">${isImage ? '🖼️' : '📄'}</div>`;
+
+      bar.innerHTML = `
+        <div class="attachment-preview-chip">
+          ${thumb}
+          <div class="attachment-preview-info">
+            <div class="attachment-preview-name">${safeName}</div>
+            <div class="${attachment.uploading ? 'attachment-upload-progress' : 'attachment-preview-size'}">
+              ${attachment.uploading ? 'Enviando...' : formatFileSize(attachment.size || 0)}
+            </div>
+          </div>
+          <button type="button" class="attachment-preview-remove" onclick="clearPendingAttachment()" title="Remover">✕</button>
+        </div>
+      `;
+      bar.style.display = 'block';
+    }
+
+    function clearPendingAttachment() {
+      pendingAttachment = null;
+      const bar = document.getElementById('attachment-preview-bar');
+      bar.innerHTML = '';
+      bar.style.display = 'none';
+    }
+
+    // ---------- Emojis e GIFs ----------
+    const EMOJI_LIST = [
+      '😀','😁','😂','🤣','😃','😄','😅','😆','😉','😊','😋','😎','😍','😘','🥰','😗',
+      '🙂','🤗','🤩','🤔','🤨','😐','😑','😶','🙄','😏','😣','😥','😮','🤐','😯','😪',
+      '😫','🥱','😴','😌','😛','😜','😝','🤤','😒','😓','😔','😕','🙃','🤑','😲','☹️',
+      '🙁','😖','😞','😟','😤','😢','😭','😦','😧','😨','😩','🤯','😬','😰','😱','🥵',
+      '🥶','😳','🤪','😵','🥴','😠','😡','🤬','😷','🤒','🤕','🤢','🤮','🥳','🥸','😇',
+      '🤠','🤡','👻','💀','👽','🤖','😺','😹','😻','😼','😽','🙀','😿','😾','👍','👎',
+      '👏','🙌','🙏','🤝','💪','👊','✊','🤞','✌️','🤘','👌','🫡','🤙','👋','🖐️','✋',
+      '❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','💯','🔥','✨','⭐','🌟',
+      '🎉','🎊','🥳','🎂','🎁','🏆','🥇','⚡','💥','💫','💤','🕹️','🎮','🎧','🎵','🎶',
+      '☕','🍕','🍔','🍟','🌭','🍿','🍩','🍪','🍺','🍻','🥂','🍷','🚀','🛸','🌍','🌈'
+    ];
+    let emojiGridRendered = false;
+
+    function renderEmojiGrid() {
+      const grid = document.getElementById('egp-emoji-grid');
+      grid.innerHTML = EMOJI_LIST.map(e => `<button type="button" class="egp-emoji-btn" onclick="insertEmoji('${e}')">${e}</button>`).join('');
+      emojiGridRendered = true;
+    }
+
+    function insertEmoji(emoji) {
+      const input = document.getElementById('input');
+      input.value += emoji;
+      input.focus();
+    }
+
+    function toggleEmojiGifPicker(e) {
+      e.stopPropagation();
+      const pop = document.getElementById('emoji-gif-popover');
+      if (pop.style.display === 'flex') {
+        pop.style.display = 'none';
+        return;
+      }
+      pop.style.display = 'flex';
+      if (!emojiGridRendered) renderEmojiGrid();
+      if (!gifsLoadedOnce) loadTrendingGifs();
+    }
+
+    function switchEmojiGifTab(tab) {
+      document.getElementById('egp-tab-emoji').classList.toggle('active', tab === 'emoji');
+      document.getElementById('egp-tab-gif').classList.toggle('active', tab === 'gif');
+      document.getElementById('egp-emoji-body').style.display = tab === 'emoji' ? 'flex' : 'none';
+      document.getElementById('egp-gif-body').style.display = tab === 'gif' ? 'flex' : 'none';
+    }
+
+    // Busca de GIFs via API do Giphy. A chave abaixo é a chave pública de TESTES do
+    // Giphy (limite de uso baixo, compartilhada por todo mundo que testa a API deles).
+    // Pra usar de verdade com seus amigos, troque por uma chave gratuita própria em
+    // https://developers.giphy.com (é rápido, só criar conta e um app).
+    const GIPHY_API_KEY = 'dc6zaTOxFJmzC';
+    let gifSearchTimeout = null;
+    let gifsLoadedOnce = false;
+
+    function searchGifsDebounced() {
+      clearTimeout(gifSearchTimeout);
+      gifSearchTimeout = setTimeout(() => {
+        const q = document.getElementById('egp-gif-search').value.trim();
+        if (q) searchGifs(q); else loadTrendingGifs();
+      }, 400);
+    }
+
+    async function loadTrendingGifs() {
+      gifsLoadedOnce = true;
+      await fetchAndRenderGifs(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_API_KEY}&limit=20&rating=pg-13`);
+    }
+
+    async function searchGifs(query) {
+      await fetchAndRenderGifs(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_API_KEY}&q=${encodeURIComponent(query)}&limit=20&rating=pg-13`);
+    }
+
+    async function fetchAndRenderGifs(url) {
+      const grid = document.getElementById('egp-gif-grid');
+      grid.innerHTML = `<div class="egp-gif-empty">Carregando...</div>`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const gifs = data.data || [];
+        if (gifs.length === 0) { grid.innerHTML = `<div class="egp-gif-empty">Nada encontrado.</div>`; return; }
+        grid.innerHTML = gifs.map((g, i) => {
+          const preview = (g.images.fixed_width_small || g.images.original).url;
+          return `<img src="${preview}" loading="lazy" onclick="sendGifMessage(${i})">`;
+        }).join('');
+        window._lastGifResults = gifs;
+      } catch (err) {
+        grid.innerHTML = `<div class="egp-gif-empty">Não foi possível carregar os GIFs.</div>`;
+      }
+    }
+
+    function sendGifMessage(index) {
+      const gif = window._lastGifResults && window._lastGifResults[index];
+      if (!gif || !activeChannel) return;
+      const gifUrl = gif.images.original.url;
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const dateStr = now.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+      socket.emit('chat-message', {
+        room: activeChannel,
+        message: '',
+        attachment: { url: gifUrl, filename: 'gif.gif', size: 0, mimetype: 'image/gif' },
+        user: username,
+        avatarUrl: userAvatarUrl,
+        time: timeStr,
+        date: dateStr
+      });
+      document.getElementById('emoji-gif-popover').style.display = 'none';
+    }
+
+    // Colar uma imagem direto no campo de mensagem (Ctrl+V) já anexa ela, igual o Discord.
+    document.getElementById('input').addEventListener('paste', (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            uploadAndPreviewFile(file);
+          }
+          break;
+        }
+      }
+    });
+
     function sendTextMessage(e) {
       e.preventDefault();
       const input = document.getElementById('input');
-      if (!input.value.trim() || !activeChannel) return;
+      const text = input.value.trim();
+      if (!text && !pendingAttachment) return;
+      if (!activeChannel) return;
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -2954,12 +3213,14 @@
       socket.emit('chat-message', { 
         room: activeChannel, 
         message: input.value, 
+        attachment: pendingAttachment || undefined,
         user: username,
         avatarUrl: userAvatarUrl,
         time: timeStr,
         date: dateStr
       });
       input.value = '';
+      clearPendingAttachment();
     }
 
     let lastRenderedDate = "";
@@ -2992,6 +3253,37 @@
     // ---------- Chat individual por canal (texto E voz) ----------
     let channelMessages = {}; // channelId -> array de mensagens recebidas nesta sessão
 
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = String(str == null ? '' : str);
+      return div.innerHTML;
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function attachmentHtml(attachment) {
+      if (!attachment) return '';
+      const isImage = attachment.mimetype && attachment.mimetype.startsWith('image/');
+      const safeName = escapeHtml(attachment.filename);
+      if (isImage) {
+        return `<img class="chat-msg-attachment-image" src="${attachment.url}" alt="${safeName}" onclick="window.open('${attachment.url}', '_blank')">`;
+      }
+      return `
+        <a class="chat-msg-attachment-file" href="${attachment.url}" download="${safeName}" target="_blank">
+          <div class="chat-msg-attachment-file-icon">📄</div>
+          <div class="chat-msg-attachment-file-info">
+            <div class="chat-msg-attachment-file-name">${safeName}</div>
+            <div class="chat-msg-attachment-file-size">${formatFileSize(attachment.size || 0)}</div>
+          </div>
+          <div class="chat-msg-attachment-file-download">Baixar</div>
+        </a>
+      `;
+    }
+
     function appendMessageToDOM(data) {
       const chatList = document.getElementById('chat-messages-list');
 
@@ -3020,7 +3312,8 @@
             ${roleBadgeHtml(data.role)}
             <span class="chat-msg-time">${data.time || 'Agora'}</span>
           </div>
-          <div class="chat-msg-text">${data.message}</div>
+          ${data.message ? `<div class="chat-msg-text">${data.message}</div>` : ''}
+          ${attachmentHtml(data.attachment)}
         </div>
       `;
       chatList.appendChild(div);
