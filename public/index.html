@@ -3119,11 +3119,10 @@
       document.getElementById('egp-gif-body').style.display = tab === 'gif' ? 'flex' : 'none';
     }
 
-    // Busca de GIFs via API do Giphy. A chave abaixo é a chave pública de TESTES do
-    // Giphy (limite de uso baixo, compartilhada por todo mundo que testa a API deles).
-    // Pra usar de verdade com seus amigos, troque por uma chave gratuita própria em
-    // https://developers.giphy.com (é rápido, só criar conta e um app).
-    const GIPHY_API_KEY = 'dc6zaTOxFJmzC';
+    // Busca de GIFs via API do Giphy — chave própria do app "DSpeak" (chave de teste
+    // pessoal, limite de 100 buscas/hora; dá pra pedir upgrade pra produção depois
+    // no painel do developers.giphy.com se precisar de mais uso).
+    const GIPHY_API_KEY = 'MLaR3cTtp9GDHhEhN9AMdP9IMlfjOckS';
     let gifSearchTimeout = null;
     let gifsLoadedOnce = false;
 
