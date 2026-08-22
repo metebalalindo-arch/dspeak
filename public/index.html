@@ -1956,22 +1956,29 @@
       // Só faz sentido responder se estivermos realmente transmitindo agora.
       if (!localStream) return;
       const pc = createPeerConnection(data.requesterSocketId);
+      respondToWatchRequest(pc, data.requesterSocketId, 6);
+    });
 
-      // Resync à prova de falhas: tira qualquer faixa de tela que já estivesse
-      // nessa ligação antes de recolocar. Assim, um pedido de "Assistir" SEMPRE
-      // gera uma faixa nova de verdade, mesmo que o aviso de "parei de assistir"
-      // de uma vez anterior não tenha chegado a tempo (ou por qualquer outro motivo
-      // os dois lados tenham ficado dessincronizados sobre o que já foi enviado).
-      const localTrackIds = localStream.getTracks().map(t => t.id);
+    // Resync à prova de falhas + adicionar a faixa de vídeo, só depois de esperar a
+    // ligação ficar "estável" (sem nenhuma negociação em andamento). Mexer numa
+    // ligação no meio de outra negociação é o que gerava aquele erro de SDP
+    // inválida ("order of m-lines... does not match").
+    function respondToWatchRequest(pc, requesterSocketId, retriesLeft) {
+      if (pc.signalingState !== 'stable') {
+        if (retriesLeft > 0) setTimeout(() => respondToWatchRequest(pc, requesterSocketId, retriesLeft - 1), 300);
+        return;
+      }
+
+      const localTrackIds = localStream ? localStream.getTracks().map(t => t.id) : [];
       pc.getSenders().forEach(sender => {
         if (sender.track && localTrackIds.includes(sender.track.id)) {
-          console.log(`[Stream] resync: removendo faixa ${sender.track.kind} antes de reenviar pra ${data.requesterSocketId}`);
+          console.log(`[Stream] resync: removendo faixa ${sender.track.kind} antes de reenviar pra ${requesterSocketId}`);
           pc.removeTrack(sender);
         }
       });
 
       addScreenTracksToPeer(pc);
-    });
+    }
 
     // Um espectador fechou nossa transmissão do lado dele — tira a faixa de vídeo
     // (e áudio do sistema, se tiver) daquela ligação específica. Assim, se ele clicar
@@ -2460,8 +2467,21 @@
       });
     }
 
-    function addScreenTracksToPeer(pc) {
+    function addScreenTracksToPeer(pc, retriesLeft) {
+      if (retriesLeft === undefined) retriesLeft = 6;
       if (!localStream) return;
+
+      // Se a ligação ainda estiver processando outra negociação (ex: acabou de ser
+      // resetada por causa da voz), espera ela ficar "estável" antes de mexer no
+      // vídeo. Adicionar a faixa no meio de outra negociação é o que gerava aquele
+      // erro de SDP inválida ("order of m-lines... does not match").
+      if (pc.signalingState !== 'stable') {
+        if (retriesLeft > 0) {
+          setTimeout(() => addScreenTracksToPeer(pc, retriesLeft - 1), 300);
+        }
+        return;
+      }
+
       localStream.getTracks().forEach(track => {
         const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
         console.log(`[Stream] faixa ${track.kind} (readyState=${track.readyState}) — já estava sendo enviada? ${already}`);
@@ -2579,21 +2599,31 @@
         return;
       }
 
-      if (offerCollision) {
-        await Promise.all([
-          pc.setLocalDescription({ type: "rollback" }),
-          pc.setRemoteDescription(new RTCSessionDescription(data.offer))
-        ]);
-      } else {
-        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      try {
+        if (offerCollision) {
+          await Promise.all([
+            pc.setLocalDescription({ type: "rollback" }),
+            pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+          ]);
+        } else {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+        }
+
+        addMicTrackToPeer(pc, data.senderSocketId);
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        console.log(`[WebRTC] mandando answer pra ${data.senderSocketId}`);
+        socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer: pc.localDescription });
+      } catch (err) {
+        // A ligação ficou num estado que o navegador recusou (ex: SDP inválida).
+        // Em vez de deixar travado, fecha tudo aqui — a próxima tentativa de
+        // assistir vai criar uma ligação nova, limpa, do zero.
+        console.error(`[WebRTC] Erro ao processar oferta de ${data.senderSocketId}, resetando a ligação:`, err);
+        pc.close();
+        delete peerConnections[data.senderSocketId];
+        removeRemoteMicAudio(data.senderSocketId);
       }
-
-      addMicTrackToPeer(pc, data.senderSocketId);
-
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      console.log(`[WebRTC] mandando answer pra ${data.senderSocketId}`);
-      socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer: pc.localDescription });
     }
 
     socket.on('webrtc-offer', (data) => handleIncomingOffer(data, 3));
