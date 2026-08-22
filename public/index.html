@@ -2489,10 +2489,96 @@
       else stopScreenShare();
     }
 
+    // ---------- Áudio de processo específico (experimental, só no app desktop) ----------
+    // Remonta os pedaços de áudio "cru" (PCM) que o Electron manda em tempo real numa
+    // faixa de áudio de verdade, que dá pra juntar com o vídeo da transmissão. Só existe
+    // quando rodando dentro do app desktop com a captura por processo disponível.
+    let activePcmBridge = null;
+
+    class PCMToMediaStreamBridge {
+      constructor(sampleRate) {
+        this.ctx = new AudioContext(sampleRate ? { sampleRate } : undefined);
+        this.dest = this.ctx.createMediaStreamDestination();
+        this.queue = [];
+        const bufferSize = 4096;
+        // ScriptProcessorNode é tecnicamente "antigo", mas ainda funciona em todo
+        // navegador atual e é bem mais simples de implementar rápido que um AudioWorklet.
+        this.processor = this.ctx.createScriptProcessor(bufferSize, 0, 2);
+        this.processor.onaudioprocess = (e) => {
+          const outL = e.outputBuffer.getChannelData(0);
+          const outR = e.outputBuffer.getChannelData(1);
+          for (let i = 0; i < outL.length; i++) {
+            const sample = this.queue.length ? this.queue.shift() : 0;
+            outL[i] = sample;
+            outR[i] = sample;
+          }
+        };
+        this.processor.connect(this.dest);
+      }
+
+      // Espera receber PCM 16-bit assinado, little-endian (o formato mais comum de captura
+      // do Windows). Se o áudio sair distorcido/errado na prática, é bem provável que o
+      // formato real seja outro (ex: 32-bit float, ou outra taxa de amostragem) — isso vai
+      // precisar de ajuste depois de testar de verdade.
+      pushChunk(uint8Array) {
+        try {
+          const view = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
+          const sampleCount = Math.floor(uint8Array.byteLength / 2);
+          for (let i = 0; i < sampleCount; i++) {
+            this.queue.push(view.getInt16(i * 2, true) / 32768);
+          }
+        } catch (err) {
+          console.error('[ProcessAudio] Erro ao processar pedaço de áudio:', err);
+        }
+      }
+
+      getTrack() { return this.dest.stream.getAudioTracks()[0]; }
+      stop() {
+        try { this.processor.disconnect(); this.ctx.close(); } catch (e) {}
+      }
+    }
+
+    // Espera (por até um tempo curto) o Electron avisar que devemos usar áudio de um
+    // processo específico. Se não vier nada, resolve com null — a transmissão segue sem
+    // esse tipo de áudio (ex: usuário não marcou essa opção, ou está no navegador comum).
+    function waitForProcessAudioTrack() {
+      if (!window.electronAudioAPI) return Promise.resolve(null);
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (track) => { if (!settled) { settled = true; resolve(track); } };
+
+        window.electronAudioAPI.onUseProcessAudio(async (processId) => {
+          try {
+            activePcmBridge = new PCMToMediaStreamBridge();
+            window.electronAudioAPI.onProcessAudioChunk((chunk) => {
+              if (activePcmBridge) activePcmBridge.pushChunk(chunk);
+            });
+            const result = await window.electronAudioAPI.startProcessAudioCapture(processId);
+            if (!result || !result.ok) {
+              console.error('[ProcessAudio] Falha ao iniciar captura:', result && result.error);
+              showToast('Não foi possível capturar o áudio só dessa janela. Transmitindo sem áudio de processo específico.');
+              finish(null);
+              return;
+            }
+            finish(activePcmBridge.getTrack());
+          } catch (err) {
+            console.error('[ProcessAudio] Erro:', err);
+            finish(null);
+          }
+        });
+
+        setTimeout(() => finish(null), 1200);
+      });
+    }
+
     async function startScreenShare() {
       let width = selectedResolution === '1440' ? 2560 : (selectedResolution === '1080' ? 1920 : 1280);
       let height = selectedResolution === '1440' ? 1440 : (selectedResolution === '1080' ? 1080 : 720);
       let fps = parseInt(selectedFps, 10);
+
+      // Já começa a "escutar" se o Electron vai pedir áudio de processo específico —
+      // isso precisa estar pronto ANTES do getDisplayMedia resolver, senão perdemos o aviso.
+      const processAudioTrackPromise = waitForProcessAudioTrack();
 
       try {
         localStream = await navigator.mediaDevices.getDisplayMedia({ 
@@ -2513,7 +2599,12 @@
           surfaceSwitching: 'include'
         });
 
-        if (localStream.getAudioTracks().length === 0) {
+        const processAudioTrack = await processAudioTrackPromise;
+
+        if (processAudioTrack) {
+          localStream.addTrack(processAudioTrack);
+          showToast('Transmitindo com áudio só dessa janela (experimental) — sem risco de eco pra quem assiste.');
+        } else if (localStream.getAudioTracks().length === 0) {
           const warnMsg = 'Essa fonte não está enviando áudio. Janelas/apps individuais geralmente não suportam captura de áudio no navegador — escolha "Guia do Chrome" ou "Tela inteira" e marque "Compartilhar áudio da guia/sistema" para transmitir com som.';
           console.warn(warnMsg);
           showToast(warnMsg);
@@ -2554,6 +2645,13 @@
       removeScreenStream(username);
       if (connectedVoiceChannel) {
         socket.emit('stop-streaming', connectedVoiceChannel);
+      }
+
+      // Encerra a captura de áudio por processo específico, se estava sendo usada.
+      if (activePcmBridge) {
+        activePcmBridge.stop();
+        activePcmBridge = null;
+        if (window.electronAudioAPI) window.electronAudioAPI.stopProcessAudioCapture();
       }
 
       // Desfaz o mudo automático de "evitar eco" — mas só se a pessoa não tiver
