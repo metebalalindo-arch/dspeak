@@ -244,9 +244,9 @@
     .stream-close-btn {
       opacity: 0; pointer-events: none; transition: opacity 0.15s;
     }
-    .screen-stream-card:hover .stream-volume-control,
-    .screen-stream-card:hover .stream-fullscreen-btn,
-    .screen-stream-card:hover .stream-close-btn {
+    .screen-stream-card.controls-visible .stream-volume-control,
+    .screen-stream-card.controls-visible .stream-fullscreen-btn,
+    .screen-stream-card.controls-visible .stream-close-btn {
       opacity: 1; pointer-events: auto;
     }
 
@@ -2740,6 +2740,27 @@
       renderStageUsers();
     }
 
+    // Mostra os controles do card (volume/expandir/fechar) quando o mouse se move
+    // em cima dele, e esconde sozinho depois de alguns segundos parado — mesmo que
+    // o mouse continue ali em cima, sem sair. Some na hora se o mouse sair do card.
+    function setupStreamCardAutoHide(card) {
+      let hideTimer = null;
+      const HIDE_DELAY_MS = 2200;
+
+      const showControls = () => {
+        card.classList.add('controls-visible');
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => card.classList.remove('controls-visible'), HIDE_DELAY_MS);
+      };
+
+      card.addEventListener('mousemove', showControls);
+      card.addEventListener('mouseenter', showControls);
+      card.addEventListener('mouseleave', () => {
+        clearTimeout(hideTimer);
+        card.classList.remove('controls-visible');
+      });
+    }
+
     function renderStreamsContainer() {
       const container = document.getElementById('streams-container');
 
@@ -2762,6 +2783,7 @@
       keys.forEach(userKey => {
         const card = document.createElement('div');
         card.className = 'screen-stream-card';
+        setupStreamCardAutoHide(card);
         
         const isOwnPreview = (userKey === username);
         const streamSocketId = activeStreams[userKey].socketId;
