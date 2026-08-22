@@ -907,8 +907,8 @@
       initials: 'DS',
       channels: [
         { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
-        { id: 'waiting-room-text', name: 'sala-de-espera', type: 'text', undeletable: true, locked: true },
-        { id: 'waiting-room', name: 'Sala de Espera', type: 'voice', undeletable: true, locked: true },
+        { id: 'waiting-room-text', name: 'sala-de-espera', type: 'text' },
+        { id: 'waiting-room', name: 'Sala de Espera', type: 'voice' },
         { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
       ]
     }];
@@ -916,7 +916,7 @@
     // --- Cargos (Owner / Moderador / Membro / Guest) ---
     const WAITING_VOICE_ROOM = 'waiting-room';
     const WAITING_TEXT_ROOM = 'waiting-room-text';
-    let myRole = 'guest';
+    let myRole = 'member';
 
     const ROLE_LABELS = { owner: 'OWNER', moderator: 'MOD', member: 'MEMBRO', guest: 'GUEST' };
     const ROLE_COLORS = { owner: '#ffd700', moderator: '#00ffcc', member: '#8fd3ff', guest: '#8a8f9d' };
@@ -930,7 +930,6 @@
     function canManageUser(targetRole) {
       if (targetRole === 'owner') return false;
       if (myRole === 'owner') return true;
-      if (myRole === 'moderator' && targetRole === 'guest') return true;
       return false;
     }
 
@@ -1551,10 +1550,6 @@
         `;
         
         div.onclick = () => {
-          if (myRole === 'guest' && ch.id !== WAITING_VOICE_ROOM && ch.id !== WAITING_TEXT_ROOM) {
-            showToast('Você está como Guest e precisa aguardar na Sala de Espera até um Moderador ou Owner liberar seu acesso.');
-            return;
-          }
           if (isVoice && ch.userLimit > 0 && occupantCount >= ch.userLimit && connectedVoiceChannel !== ch.id) {
             showToast(`Sala "${ch.name}" está cheia (máximo ${ch.userLimit} pessoas).`);
             return;
@@ -1920,6 +1915,7 @@
       }
 
       watchedStreams[targetSocketId] = true;
+      console.log(`[Stream] pedindo pra assistir ${targetSocketId}`);
       socket.emit('request-watch-stream', { targetSocketId });
       renderChannels();
       renderStageUsers();
@@ -1943,6 +1939,7 @@
     }
 
     socket.on('watch-stream-requested', (data) => {
+      console.log(`[Stream] ${data.requesterSocketId} pediu pra assistir. localStream existe? ${!!localStream}`);
       // Só faz sentido responder se estivermos realmente transmitindo agora.
       if (!localStream) return;
       const pc = createPeerConnection(data.requesterSocketId);
@@ -1954,10 +1951,12 @@
     // em "Assistir" de novo depois, a gente manda tudo de novo do zero certinho.
     socket.on('viewer-stopped-watching', (data) => {
       const pc = peerConnections[data.viewerSocketId];
+      console.log(`[Stream] ${data.viewerSocketId} fechou a transmissão do lado dele. pc existe? ${!!pc}, localStream existe? ${!!localStream}`);
       if (!pc || !localStream) return;
       const localTrackIds = localStream.getTracks().map(t => t.id);
       pc.getSenders().forEach(sender => {
         if (sender.track && localTrackIds.includes(sender.track.id)) {
+          console.log(`[Stream] removendo faixa ${sender.track.kind} da ligação com ${data.viewerSocketId}`);
           pc.removeTrack(sender);
         }
       });
@@ -1979,19 +1978,13 @@
       optionsWrap.innerHTML = '';
 
       if (myRole === 'owner') {
-        ['guest', 'member', 'moderator', 'owner'].forEach(r => {
+        ['member', 'moderator', 'owner'].forEach(r => {
           const btn = document.createElement('button');
           btn.className = 'role-option-btn' + (r === targetRole ? ' current' : '');
           btn.textContent = r === targetRole ? `✓ ${ROLE_LABELS[r]} (atual)` : `Tornar ${ROLE_LABELS[r]}`;
           if (r !== targetRole) btn.onclick = () => giveRole(targetUsername, r);
           optionsWrap.appendChild(btn);
         });
-      } else if (myRole === 'moderator' && targetRole === 'guest') {
-        const btn = document.createElement('button');
-        btn.className = 'role-option-btn';
-        btn.textContent = `Tornar ${ROLE_LABELS.member}`;
-        btn.onclick = () => giveRole(targetUsername, 'member');
-        optionsWrap.appendChild(btn);
       }
 
       // Mod não pode puxar um Owner — só o próprio Owner mexe em outro Owner.
@@ -2027,14 +2020,10 @@
     }
 
     socket.on('your-role', (data) => {
-      const wasGuest = myRole === 'guest';
       myRole = data.role;
       applyRolePermissionsToUI();
-      if (myRole !== 'guest' && wasGuest) {
-        showToast(`Você agora é ${ROLE_LABELS[myRole] || myRole}! Já pode circular pelas salas.`);
-      }
       if (connectedVoiceChannel) {
-        const canShareScreen = myRole !== 'guest' && connectedVoiceChannel !== WAITING_VOICE_ROOM;
+        const canShareScreen = connectedVoiceChannel !== WAITING_VOICE_ROOM;
         document.getElementById('share-btn').disabled = !canShareScreen;
         document.getElementById('stage-share-btn').disabled = !canShareScreen;
       }
@@ -2097,7 +2086,7 @@
       document.getElementById('deafen-btn').disabled = false;
 
       // Guests e a Sala de Espera não podem transmitir tela.
-      const canShareScreen = myRole !== 'guest' && channel.id !== WAITING_VOICE_ROOM;
+      const canShareScreen = channel.id !== WAITING_VOICE_ROOM;
       document.getElementById('share-btn').disabled = !canShareScreen;
       document.getElementById('stage-share-btn').disabled = !canShareScreen;
       document.getElementById('stage-share-btn').title = canShareScreen ? 'Transmitir Tela' : 'Transmissão de tela não disponível aqui';
@@ -2325,10 +2314,6 @@
 
     function toggleScreenShare() {
       if (!localStream) {
-        if (myRole === 'guest') {
-          showToast('Guests não podem transmitir tela. Peça pra um Moderador ou Owner te dar um cargo primeiro.');
-          return;
-        }
         if (connectedVoiceChannel === WAITING_VOICE_ROOM) {
           showToast('Não dá pra transmitir tela na Sala de Espera.');
           return;
@@ -2433,9 +2418,9 @@
 
     function addScreenTracksToPeer(pc) {
       if (!localStream) return;
-      const existingKinds = pc.getSenders().map(s => s.track && s.track.kind && s.track.label).filter(Boolean);
       localStream.getTracks().forEach(track => {
         const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
+        console.log(`[Stream] faixa ${track.kind} (readyState=${track.readyState}) — já estava sendo enviada? ${already}`);
         if (!already) {
           const sender = pc.addTrack(track, localStream);
           if (track.kind === 'video') applyBitrateToSender(sender);
@@ -2484,12 +2469,14 @@
       pc.makingOffer = false;
 
       pc.onnegotiationneeded = async () => {
+        console.log(`[WebRTC] onnegotiationneeded com ${targetSocketId} (signalingState=${pc.signalingState})`);
         try {
           pc.makingOffer = true;
           await pc.setLocalDescription();
+          console.log(`[WebRTC] mandando offer pra ${targetSocketId}`);
           socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
         } catch (err) {
-          console.error("Erro ao negociar (onnegotiationneeded):", err);
+          console.error(`[WebRTC] Erro ao negociar (onnegotiationneeded) com ${targetSocketId}:`, err);
         } finally {
           pc.makingOffer = false;
         }
@@ -2498,6 +2485,7 @@
       pc.ontrack = (event) => {
         const stream = event.streams[0];
         const hasVideo = stream && stream.getVideoTracks().length > 0;
+        console.log(`[WebRTC] ontrack de ${targetSocketId}: kind=${event.track.kind}, hasVideo=${hasVideo}`);
 
         if (hasVideo) {
           // Faixa de compartilhamento de tela (vídeo + áudio do sistema juntos).
@@ -2517,6 +2505,13 @@
         }
       };
 
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] ICE com ${targetSocketId}: ${pc.iceConnectionState}`);
+      };
+      pc.onconnectionstatechange = () => {
+        console.log(`[WebRTC] Conexão com ${targetSocketId}: ${pc.connectionState}`);
+      };
+
       addMicTrackToPeer(pc, targetSocketId);
 
       return pc;
@@ -2527,6 +2522,7 @@
 
       const offerCollision = pc.makingOffer || pc.signalingState !== "stable";
       const ignoreOffer = !pc.polite && offerCollision;
+      console.log(`[WebRTC] offer recebida de ${data.senderSocketId} (signalingState=${pc.signalingState}, colisão=${offerCollision}, ignorando=${ignoreOffer})`);
       if (ignoreOffer) return;
 
       if (offerCollision) {
@@ -2542,12 +2538,15 @@
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
+      console.log(`[WebRTC] mandando answer pra ${data.senderSocketId}`);
       socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer: pc.localDescription });
     });
 
     socket.on('webrtc-answer', async (data) => {
       const pc = peerConnections[data.senderSocketId];
-      if (pc && pc.signalingState === "have-local-offer") {
+      const canApply = pc && pc.signalingState === "have-local-offer";
+      console.log(`[WebRTC] answer recebida de ${data.senderSocketId} (signalingState=${pc ? pc.signalingState : 'sem pc'}, aplicando=${canApply})`);
+      if (canApply) {
         await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
       }
     });
@@ -2558,7 +2557,7 @@
         try {
           await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
         } catch (e) {
-          console.error("Erro ICE:", e);
+          console.error(`[WebRTC] Erro ao adicionar ICE candidate de ${data.senderSocketId}:`, e);
         }
       }
     });
@@ -2793,12 +2792,6 @@
       e.preventDefault();
       const input = document.getElementById('input');
       if (!input.value.trim() || !activeChannel) return;
-
-      const isOwnerClaimCommand = /^!owner\s+.+$/i.test(input.value.trim());
-      if (myRole === 'guest' && activeChannel !== WAITING_TEXT_ROOM && !isOwnerClaimCommand) {
-        showToast('Você está como Guest e só pode conversar na Sala de Espera até ganhar um cargo.');
-        return;
-      }
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
