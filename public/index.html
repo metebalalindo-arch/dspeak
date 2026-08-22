@@ -2611,6 +2611,7 @@
     // transmitindo normalmente pra quem mais estiver assistindo; se quisermos, dá pra
     // clicar em "Assistir" de novo depois pra reabrir.
     function closeWatchingStream(userKey, socketId) {
+      console.log(`[Stream] fechando transmissão de ${userKey} (socketId=${socketId})`);
       delete activeStreams[userKey];
       if (socketId) {
         watchedStreams[socketId] = false;
