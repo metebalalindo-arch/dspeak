@@ -1036,6 +1036,9 @@
     let localStream = null;
     let isMuted = false;
     let isDeafened = false;
+    // true enquanto estamos ouvindo os outros mutado automaticamente por causa de uma
+    // transmissão de tela com áudio do sistema (evita o eco de retorno).
+    let autoMutedForStreamAudio = false;
     let voiceChannelUsers = {};
 
     let peerConnections = {};
@@ -1874,7 +1877,7 @@
         peerAudioEls[targetSocketId] = el;
       }
       el.srcObject = stream;
-      el.muted = isDeafened;
+      el.muted = isDeafened || autoMutedForStreamAudio;
       el.volume = userVolumes[targetSocketId] !== undefined ? userVolumes[targetSocketId] : 1;
       if (el.setSinkId && selectedSpeakerId) el.setSinkId(selectedSpeakerId).catch(() => {});
       setupSpeakingDetection(stream, targetSocketId);
@@ -2419,7 +2422,10 @@
       applyMicState();
 
       // Silencia o que estamos recebendo dos outros (voz e transmissões de tela).
-      Object.values(peerAudioEls).forEach(el => el.muted = isDeafened);
+      // Ao desensurdecer, só volta a tocar se não estivermos no meio de uma
+      // transmissão com áudio do sistema (senão reabriria a brecha do eco de retorno).
+      const shouldMute = isDeafened || autoMutedForStreamAudio;
+      Object.values(peerAudioEls).forEach(el => el.muted = shouldMute);
       document.querySelectorAll('#streams-container video:not(.own-preview)').forEach(v => v.muted = isDeafened);
 
       document.getElementById('deafen-btn').classList.toggle('active-off', isDeafened);
@@ -2485,6 +2491,14 @@
           const warnMsg = 'Essa fonte não está enviando áudio. Janelas/apps individuais geralmente não suportam captura de áudio no navegador — escolha "Guia do Chrome" ou "Tela inteira" e marque "Compartilhar áudio da guia/sistema" para transmitir com som.';
           console.warn(warnMsg);
           showToast(warnMsg);
+        } else {
+          // Estamos mandando áudio do sistema junto da transmissão — isso inclui a voz
+          // dos outros tocando no SEU alto-falante. Se não silenciarmos o que você ouve
+          // deles agora, a voz de quem está falando entra de novo na gravação e volta
+          // pra eles como eco/retorno. Isso NÃO mexe no seu microfone, só no que você escuta.
+          autoMutedForStreamAudio = true;
+          Object.values(peerAudioEls).forEach(el => el.muted = true);
+          showToast('Você está transmitindo com áudio do sistema — pra evitar eco, você não vai ouvir os outros enquanto estiver transmitindo assim.');
         }
         
         addScreenStream(username, localStream, socket.id);
@@ -2515,6 +2529,15 @@
       removeScreenStream(username);
       if (connectedVoiceChannel) {
         socket.emit('stop-streaming', connectedVoiceChannel);
+      }
+
+      // Desfaz o mudo automático de "evitar eco" — mas só se a pessoa não tiver
+      // ensurdecido de propósito por conta própria nesse meio tempo.
+      if (autoMutedForStreamAudio) {
+        autoMutedForStreamAudio = false;
+        if (!isDeafened) {
+          Object.values(peerAudioEls).forEach(el => el.muted = false);
+        }
       }
 
       const shareBtn = document.getElementById('stage-share-btn');
