@@ -774,7 +774,7 @@
         Object.keys(peerConnections).forEach(id => { peerConnections[id].close(); delete peerConnections[id]; });
         Object.keys(peerAudioEls).forEach(removeRemoteMicAudio);
         micSenders = {};
-        reconnectPeersInCurrentChannel();
+        reconnectPeersInCurrentChannel(++voiceConnectionGeneration);
       }
 
       if (hadVoiceConnectionBeforeDrop) {
@@ -937,7 +937,7 @@
     function roleManageBtnHtml(u, isSelf) {
       if (isSelf) return '';
       if (myRole !== 'owner' && myRole !== 'moderator') return '';
-      if (u.role === 'owner') return ''; // ninguém mexe no Owner por aqui
+      if (u.role === 'owner' && myRole !== 'owner') return ''; // só o Owner mexe em outro Owner
       const safeName = String(u.name).replace(/'/g, "\\'");
       return `<button class="role-manage-btn" title="Gerenciar" onclick="event.stopPropagation(); openRoleModal('${safeName}', '${u.socketId}', '${u.role || 'guest'}')">⚙</button>`;
     }
@@ -954,6 +954,11 @@
     let activeServerId = 'dspeak';
     let activeChannel = 'geral';
     let connectedVoiceChannel = null;
+    // Toda vez que trocamos de sala de voz, isso incrementa. Serve pra uma troca antiga
+    // (que ainda está no meio do processo assíncrono de conectar o microfone) perceber
+    // que já foi substituída por uma troca mais nova e desistir, em vez de "brigar" com
+    // ela — é isso que causava falha ao puxar/trocar de sala repetidamente e rápido.
+    let voiceConnectionGeneration = 0;
     let localStream = null;
     let isMuted = false;
     let isDeafened = false;
@@ -1602,7 +1607,7 @@
 
               // Arrastar-e-soltar: Owner/Mod pode segurar o nome de alguém e soltar
               // em cima de outra sala de voz na lista, pra puxar a pessoa pra lá.
-              const canDragUser = (myRole === 'owner' || myRole === 'moderator') && !isSelf && u.role !== 'owner';
+              const canDragUser = (myRole === 'owner' || myRole === 'moderator') && !isSelf && (u.role !== 'owner' || myRole === 'owner');
               if (canDragUser) {
                 sub.draggable = true;
                 sub.ondragstart = (e) => {
@@ -1942,7 +1947,7 @@
       optionsWrap.innerHTML = '';
 
       if (myRole === 'owner') {
-        ['guest', 'member', 'moderator'].forEach(r => {
+        ['guest', 'member', 'moderator', 'owner'].forEach(r => {
           const btn = document.createElement('button');
           btn.className = 'role-option-btn' + (r === targetRole ? ' current' : '');
           btn.textContent = r === targetRole ? `✓ ${ROLE_LABELS[r]} (atual)` : `Tornar ${ROLE_LABELS[r]}`;
@@ -1957,7 +1962,9 @@
         optionsWrap.appendChild(btn);
       }
 
-      if ((myRole === 'owner' || myRole === 'moderator') && connectedVoiceChannel) {
+      // Mod não pode puxar um Owner — só o próprio Owner mexe em outro Owner.
+      const canPull = connectedVoiceChannel && (myRole === 'owner' || (myRole === 'moderator' && targetRole !== 'owner'));
+      if (canPull) {
         const pullBtn = document.createElement('button');
         pullBtn.className = 'role-pull-btn';
         pullBtn.textContent = '⬇ Puxar para esta sala';
@@ -2027,6 +2034,7 @@
     });
 
     function connectVoice(channel) {
+      const myGeneration = ++voiceConnectionGeneration;
       const isSwitchingRoom = connectedVoiceChannel && connectedVoiceChannel !== channel.id;
       if (isSwitchingRoom) {
         socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
@@ -2071,14 +2079,19 @@
       socket.emit('join-room', channel.id);
 
       // Captura o microfone real e conecta a voz com quem já está na sala.
-      reconnectPeersInCurrentChannel();
+      reconnectPeersInCurrentChannel(myGeneration);
     }
 
     // Conecta (ou reconecta) com todo mundo que já está na sala de voz atual.
     // Usada tanto ao entrar numa sala quanto ao recuperar a conexão depois de uma
     // queda momentânea (Wi-Fi engasgando, aba em segundo plano, celular travando a tela).
-    function reconnectPeersInCurrentChannel() {
+    function reconnectPeersInCurrentChannel(expectedGeneration) {
+      const generation = expectedGeneration !== undefined ? expectedGeneration : voiceConnectionGeneration;
       ensureLocalMic().then(() => {
+        // Se enquanto o microfone carregava já rolou outra troca de sala mais nova
+        // (ex: puxado de novo rapidamente), essa chamada desiste — evita que as duas
+        // fiquem brigando e a conexão trave.
+        if (generation !== voiceConnectionGeneration) return;
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
         usersInChannel.forEach(u => {
           if (u.socketId !== socket.id) {
