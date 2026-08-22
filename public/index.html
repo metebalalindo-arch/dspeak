@@ -1041,6 +1041,28 @@
     let autoMutedForStreamAudio = false;
     let voiceChannelUsers = {};
 
+    // Mutar sozinho (.muted=true) às vezes não é suficiente pra evitar que uma captura
+    // de áudio do sistema pegue um resquício do som — o navegador pode manter a sessão
+    // de áudio "tecnicamente tocando" por baixo dos panos mesmo mutada. Por isso, além de
+    // mutar, PAUSAMOS de verdade a reprodução — assim não sobra nada tocando pra qualquer
+    // tipo de captura de sistema conseguir pegar.
+    function muteAllPeerAudioForStream() {
+      autoMutedForStreamAudio = true;
+      Object.values(peerAudioEls).forEach(el => {
+        el.muted = true;
+        el.pause();
+      });
+    }
+
+    function restorePeerAudioAfterStream() {
+      autoMutedForStreamAudio = false;
+      if (isDeafened) return; // continua mutado se a pessoa tiver ensurdecido de propósito
+      Object.values(peerAudioEls).forEach(el => {
+        el.muted = false;
+        el.play().catch(() => {});
+      });
+    }
+
     let peerConnections = {};
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
@@ -1879,6 +1901,7 @@
       el.srcObject = stream;
       el.muted = isDeafened || autoMutedForStreamAudio;
       el.volume = userVolumes[targetSocketId] !== undefined ? userVolumes[targetSocketId] : 1;
+      if (autoMutedForStreamAudio) el.pause();
       if (el.setSinkId && selectedSpeakerId) el.setSinkId(selectedSpeakerId).catch(() => {});
       setupSpeakingDetection(stream, targetSocketId);
     }
@@ -2425,7 +2448,10 @@
       // Ao desensurdecer, só volta a tocar se não estivermos no meio de uma
       // transmissão com áudio do sistema (senão reabriria a brecha do eco de retorno).
       const shouldMute = isDeafened || autoMutedForStreamAudio;
-      Object.values(peerAudioEls).forEach(el => el.muted = shouldMute);
+      Object.values(peerAudioEls).forEach(el => {
+        el.muted = shouldMute;
+        if (shouldMute) el.pause(); else el.play().catch(() => {});
+      });
       document.querySelectorAll('#streams-container video:not(.own-preview)').forEach(v => v.muted = isDeafened);
 
       document.getElementById('deafen-btn').classList.toggle('active-off', isDeafened);
@@ -2493,11 +2519,10 @@
           showToast(warnMsg);
         } else {
           // Estamos mandando áudio do sistema junto da transmissão — isso inclui a voz
-          // dos outros tocando no SEU alto-falante. Se não silenciarmos o que você ouve
-          // deles agora, a voz de quem está falando entra de novo na gravação e volta
-          // pra eles como eco/retorno. Isso NÃO mexe no seu microfone, só no que você escuta.
-          autoMutedForStreamAudio = true;
-          Object.values(peerAudioEls).forEach(el => el.muted = true);
+          // dos outros tocando no SEU alto-falante. Se não pararmos de reproduzir o que
+          // você ouve deles agora, a voz de quem está falando entra de novo na gravação e
+          // volta pra eles como eco/retorno. Isso NÃO mexe no seu microfone, só no que você escuta.
+          muteAllPeerAudioForStream();
           showToast('Você está transmitindo com áudio do sistema — pra evitar eco, você não vai ouvir os outros enquanto estiver transmitindo assim.');
         }
         
@@ -2533,12 +2558,7 @@
 
       // Desfaz o mudo automático de "evitar eco" — mas só se a pessoa não tiver
       // ensurdecido de propósito por conta própria nesse meio tempo.
-      if (autoMutedForStreamAudio) {
-        autoMutedForStreamAudio = false;
-        if (!isDeafened) {
-          Object.values(peerAudioEls).forEach(el => el.muted = false);
-        }
-      }
+      if (autoMutedForStreamAudio) restorePeerAudioAfterStream();
 
       const shareBtn = document.getElementById('stage-share-btn');
       shareBtn.classList.remove('active-share');
