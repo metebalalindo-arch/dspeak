@@ -1976,17 +1976,34 @@
     // Um espectador fechou nossa transmissão do lado dele — tira a faixa de vídeo
     // (e áudio do sistema, se tiver) daquela ligação específica. Assim, se ele clicar
     // em "Assistir" de novo depois, a gente manda tudo de novo do zero certinho.
-    socket.on('viewer-stopped-watching', (data) => {
-      const pc = peerConnections[data.viewerSocketId];
-      console.log(`[Stream] ${data.viewerSocketId} fechou a transmissão do lado dele. pc existe? ${!!pc}, localStream existe? ${!!localStream}`);
-      if (!pc || !localStream) return;
-      const localTrackIds = localStream.getTracks().map(t => t.id);
-      pc.getSenders().forEach(sender => {
-        if (sender.track && localTrackIds.includes(sender.track.id)) {
-          console.log(`[Stream] removendo faixa ${sender.track.kind} da ligação com ${data.viewerSocketId}`);
-          pc.removeTrack(sender);
-        }
-      });
+    // Fecha e recria do ZERO a ligação de voz/vídeo com uma pessoa específica.
+    // Usado ao fechar uma transmissão: garante que o PRÓXIMO "Assistir" comece
+    // numa negociação limpa, sem nenhum estado velho grudado — exatamente o que já
+    // funcionava ao sair da sala e voltar, só que agora automático.
+    function resetPeerConnectionWith(targetSocketId) {
+      const pc = peerConnections[targetSocketId];
+      if (pc) { pc.close(); delete peerConnections[targetSocketId]; }
+      removeRemoteMicAudio(targetSocketId);
+      delete micSenders[targetSocketId];
+      console.log(`[Stream] resetando ligação com ${targetSocketId} do zero`);
+      socket.emit('reset-peer-connection', { targetSocketId });
+
+      // Reconecta a voz do zero com essa pessoa na hora (conexão nova = negociação limpa).
+      if (connectedVoiceChannel) {
+        const newPc = createPeerConnection(targetSocketId);
+        addMicTrackToPeer(newPc, targetSocketId);
+      }
+    }
+
+    // O outro lado resetou a ligação com a gente — fecha a nossa também. Não precisa
+    // recriar aqui: o outro lado já vai mandar uma proposta nova (a voz) em instantes,
+    // e nosso 'webrtc-offer' cria a conexão nova sozinho quando ela chegar.
+    socket.on('peer-connection-reset', (data) => {
+      const pc = peerConnections[data.requesterSocketId];
+      console.log(`[Stream] ${data.requesterSocketId} resetou a ligação com a gente. pc existia? ${!!pc}`);
+      if (pc) { pc.close(); delete peerConnections[data.requesterSocketId]; }
+      removeRemoteMicAudio(data.requesterSocketId);
+      delete micSenders[data.requesterSocketId];
     });
 
     // true enquanto estamos numa sala marcada como "silenciosa" (AFK) — nela o
@@ -2655,10 +2672,10 @@
       if (socketId) {
         watchedStreams[socketId] = false;
         clearTimeout(watchStreamTimeouts[socketId]);
-        // Avisa quem está transmitindo pra tirar a faixa de vídeo dessa ligação —
-        // sem isso, um "Assistir" futuro não gerava nada de novo (ele achava que já
-        // estava mandando).
-        socket.emit('stop-watching-stream', { targetSocketId: socketId });
+        // Reseta a ligação inteira com essa pessoa (fecha e recria do zero) — é
+        // exatamente o que já funcionava ao trocar de sala e voltar, só que agora
+        // automático, sem precisar sair da sala de verdade.
+        resetPeerConnectionWith(socketId);
       }
       renderStreamsContainer();
       renderChannels();
