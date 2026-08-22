@@ -1949,6 +1949,20 @@
       addScreenTracksToPeer(pc);
     });
 
+    // Um espectador fechou nossa transmissão do lado dele — tira a faixa de vídeo
+    // (e áudio do sistema, se tiver) daquela ligação específica. Assim, se ele clicar
+    // em "Assistir" de novo depois, a gente manda tudo de novo do zero certinho.
+    socket.on('viewer-stopped-watching', (data) => {
+      const pc = peerConnections[data.viewerSocketId];
+      if (!pc || !localStream) return;
+      const localTrackIds = localStream.getTracks().map(t => t.id);
+      pc.getSenders().forEach(sender => {
+        if (sender.track && localTrackIds.includes(sender.track.id)) {
+          pc.removeTrack(sender);
+        }
+      });
+    });
+
     // true enquanto estamos numa sala marcada como "silenciosa" (AFK) — nela o
     // microfone fica sempre mutado e não dá pra desmutar.
     let currentRoomIsSilent = false;
@@ -2602,6 +2616,10 @@
       if (socketId) {
         watchedStreams[socketId] = false;
         clearTimeout(watchStreamTimeouts[socketId]);
+        // Avisa quem está transmitindo pra tirar a faixa de vídeo dessa ligação —
+        // sem isso, um "Assistir" futuro não gerava nada de novo (ele achava que já
+        // estava mandando).
+        socket.emit('stop-watching-stream', { targetSocketId: socketId });
       }
       renderStreamsContainer();
       renderChannels();
@@ -2617,6 +2635,14 @@
 
     function renderStreamsContainer() {
       const container = document.getElementById('streams-container');
+
+      // Pausa e desliga o som de qualquer vídeo que já estava tocando antes de
+      // remover da tela — só tirar do HTML não garante que o áudio pare de verdade
+      // em todo navegador, então fazemos isso explicitamente.
+      container.querySelectorAll('video').forEach(v => {
+        v.pause();
+        v.srcObject = null;
+      });
       container.innerHTML = '';
       const keys = Object.keys(activeStreams);
 
@@ -2631,13 +2657,15 @@
         card.className = 'screen-stream-card';
         
         const isOwnPreview = (userKey === username);
+        const streamSocketId = activeStreams[userKey].socketId;
+        const savedVolume = userVolumes[streamSocketId] !== undefined ? userVolumes[streamSocketId] : 1;
 
         const video = document.createElement('video');
         video.autoplay = true;
         video.playsinline = true;
-        video.muted = isOwnPreview || isDeafened;
+        video.muted = isOwnPreview || isDeafened || savedVolume === 0;
         video.srcObject = activeStreams[userKey].stream;
-        video.volume = 1;
+        video.volume = savedVolume;
         if (isOwnPreview) video.classList.add('own-preview');
         if (video.setSinkId && selectedSpeakerId && !isOwnPreview) video.setSinkId(selectedSpeakerId).catch(() => {});
 
@@ -2659,7 +2687,7 @@
           volumeSlider.className = 'stream-volume-slider';
           volumeSlider.min = '0';
           volumeSlider.max = '100';
-          volumeSlider.value = '100';
+          volumeSlider.value = String(Math.round(savedVolume * 100));
 
           const updateMuteIcon = () => {
             const muted = video.muted || video.volume === 0;
@@ -2679,7 +2707,11 @@
             e.stopPropagation();
             if (audioBlocked) { playAfterGesture(); return; }
             video.muted = !video.muted;
-            if (!video.muted && video.volume === 0) { video.volume = 1; volumeSlider.value = 100; }
+            if (!video.muted && video.volume === 0) {
+              video.volume = 1;
+              volumeSlider.value = 100;
+              userVolumes[streamSocketId] = 1;
+            }
             updateMuteIcon();
           };
 
@@ -2689,9 +2721,11 @@
             const val = parseInt(volumeSlider.value, 10) / 100;
             video.volume = val;
             video.muted = val === 0;
+            userVolumes[streamSocketId] = val; // salva pra sobreviver a re-renderizações
             updateMuteIcon();
           };
           volumeSlider.onclick = (e) => e.stopPropagation();
+          volumeSlider.onmousedown = (e) => e.stopPropagation();
 
           volumeControl.appendChild(muteBtn);
           volumeControl.appendChild(volumeSlider);
