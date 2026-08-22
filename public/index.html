@@ -981,6 +981,7 @@
     // --- Item 6: live sob demanda (clicar em "Assistir") ---
     let liveStreamers = {};   // socketId -> nome de quem está transmitindo no canal atual
     let watchedStreams = {};  // socketId -> true quando já clicamos em "Assistir"
+    let watchStreamTimeouts = {}; // socketId -> timeout de segurança (evita ficar preso pra sempre)
 
     // --- Item 7: detecção de fala (borda laranja) ---
     let speakingState = {};   // socketId -> bool
@@ -1922,6 +1923,23 @@
       socket.emit('request-watch-stream', { targetSocketId });
       renderChannels();
       renderStageUsers();
+
+      // Rede de segurança: se em alguns segundos a transmissão não chegar de verdade
+      // (falha de conexão, ICE que não fecha, etc.), desiste sozinho e libera o botão
+      // "Assistir" de novo. Sem isso, uma falha silenciosa deixava a pessoa presa pra
+      // sempre com o card marcado "AO VIVO" sem nenhum vídeo e sem jeito de tentar de novo.
+      clearTimeout(watchStreamTimeouts[targetSocketId]);
+      watchStreamTimeouts[targetSocketId] = setTimeout(() => {
+        const alreadyGotStream = Object.values(activeStreams).some(s => s.socketId === targetSocketId);
+        if (!alreadyGotStream && watchedStreams[targetSocketId]) {
+          const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
+          const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
+          watchedStreams[targetSocketId] = false;
+          showToast(`Não foi possível conectar à transmissão${targetUser ? ' de ' + targetUser.name : ''}. Tente assistir de novo.`);
+          renderChannels();
+          renderStageUsers();
+        }
+      }, 7000);
     }
 
     socket.on('watch-stream-requested', (data) => {
@@ -2432,7 +2450,15 @@
     }
 
     function createPeerConnection(targetSocketId) {
-      if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
+      const existing = peerConnections[targetSocketId];
+      if (existing) {
+        const isDead = existing.connectionState === 'failed' || existing.connectionState === 'closed' || existing.connectionState === 'disconnected';
+        if (!isDead) return existing;
+        // Conexão antiga morta (silenciosamente) — descarta e cria uma nova do zero,
+        // senão a transmissão de tela nunca ia conseguir passar por ela.
+        existing.close();
+        delete peerConnections[targetSocketId];
+      }
 
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnections[targetSocketId] = pc;
@@ -2562,6 +2588,7 @@
 
     function addScreenStream(user, stream, socketId) {
       activeStreams[user] = { stream, socketId };
+      clearTimeout(watchStreamTimeouts[socketId]);
       renderStreamsContainer();
       renderChannels();
       renderStageUsers();
@@ -2572,7 +2599,10 @@
     // clicar em "Assistir" de novo depois pra reabrir.
     function closeWatchingStream(userKey, socketId) {
       delete activeStreams[userKey];
-      if (socketId) watchedStreams[socketId] = false;
+      if (socketId) {
+        watchedStreams[socketId] = false;
+        clearTimeout(watchStreamTimeouts[socketId]);
+      }
       renderStreamsContainer();
       renderChannels();
       renderStageUsers();
