@@ -550,6 +550,19 @@
               <select id="select-audio-output" onchange="onSpeakerDeviceChange()"><option>Buscando dispositivos...</option></select>
             </div>
 
+            <div class="modal-field">
+              <label>Áudio extra pra Transmissão de Tela (opcional)</label>
+              <select id="select-screen-audio-device" onchange="onScreenAudioDeviceChange()">
+                <option value="">Nenhum</option>
+              </select>
+              <p style="font-size:11px; color:#8a8f9d; margin-top:4px;">
+                Pra mandar o áudio de um programa específico (ex: um jogo) junto da
+                transmissão de tela, sem pegar o resto do PC — configure um "cabo de
+                áudio virtual" (ex: VB-Audio Virtual Cable, grátis) no Windows pra esse
+                programa, e escolha ele aqui.
+              </p>
+            </div>
+
             <div class="opt-sec-label">MODO DE TRANSMISSÃO</div>
             <div class="opt-grid">
               <div class="opt-card selected" id="opt-mode-vad" onclick="selectInputMode('vad')">
@@ -1071,6 +1084,10 @@
     let micSenders = {};      // socketId -> RTCRtpSender do áudio do microfone
     let peerAudioEls = {};    // socketId -> elemento <audio> escondido tocando a voz remota
     let selectedMicId = "";
+    // Dispositivo de áudio extra pra transmissão de tela (ex: "CABLE Output" de um
+    // cabo de áudio virtual) — vazio significa "nenhum", não manda áudio extra nenhum.
+    // Fica salvo entre sessões, não precisa escolher de novo toda vez que abrir o app.
+    let selectedScreenAudioDeviceId = localStorage.getItem('dspeak_screen_audio_device') || "";
     let selectedSpeakerId = "";
 
     // --- Item 2: ping real ---
@@ -1253,17 +1270,24 @@
         const devices = await navigator.mediaDevices.enumerateDevices();
         const selectMic = document.getElementById('select-audio-input');
         const selectSpeaker = document.getElementById('select-audio-output');
+        const selectScreenAudio = document.getElementById('select-screen-audio-device');
 
         selectMic.innerHTML = ''; selectSpeaker.innerHTML = '';
+        selectScreenAudio.innerHTML = '<option value="">Nenhum</option>';
 
         devices.forEach(d => {
           const option = document.createElement('option');
           option.value = d.deviceId;
           option.text = d.label || `${d.kind} (${d.deviceId.slice(0, 5)}...)`;
 
-          if (d.kind === 'audioinput') selectMic.appendChild(option);
+          if (d.kind === 'audioinput') {
+            selectMic.appendChild(option);
+            selectScreenAudio.appendChild(option.cloneNode(true));
+          }
           else if (d.kind === 'audiooutput') selectSpeaker.appendChild(option);
         });
+
+        if (selectedScreenAudioDeviceId) selectScreenAudio.value = selectedScreenAudioDeviceId;
       } catch (e) { console.error("Erro ao carregar periféricos:", e); }
     }
 
@@ -1272,6 +1296,11 @@
       selectedMicId = document.getElementById('select-audio-input').value;
       startMicTest();
       if (connectedVoiceChannel) await restartLocalMic();
+    }
+
+    function onScreenAudioDeviceChange() {
+      selectedScreenAudioDeviceId = document.getElementById('select-screen-audio-device').value;
+      localStorage.setItem('dspeak_screen_audio_device', selectedScreenAudioDeviceId);
     }
 
     // Item 3: troca de saída de áudio (alto-falante/fone) em tempo real
@@ -2621,6 +2650,31 @@
           // volta pra eles como eco/retorno. Isso NÃO mexe no seu microfone, só no que você escuta.
           muteAllPeerAudioForStream();
           showToast('Você está transmitindo com áudio do sistema — pra evitar eco, você não vai ouvir os outros enquanto estiver transmitindo assim.');
+        }
+
+        // Se configuramos um dispositivo de áudio específico nas configurações (ex: o
+        // "CABLE Output" de um cabo de áudio virtual, usado pra isolar o som de um
+        // programa só), adiciona ele também. É uma API padrão do navegador — sem
+        // biblioteca de terceiros, então não tem risco de travar o app.
+        if (selectedScreenAudioDeviceId) {
+          try {
+            const deviceStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                deviceId: { exact: selectedScreenAudioDeviceId },
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false
+              }
+            });
+            const deviceTrack = deviceStream.getAudioTracks()[0];
+            if (deviceTrack) {
+              localStream.addTrack(deviceTrack);
+              showToast('Transmitindo com o dispositivo de áudio extra configurado (isolado, sem risco de eco).');
+            }
+          } catch (err) {
+            console.error('Erro ao capturar o dispositivo de áudio extra:', err);
+            showToast('Não foi possível usar o dispositivo de áudio extra configurado em Voz & Áudio.');
+          }
         }
         
         addScreenStream(username, localStream, socket.id);
