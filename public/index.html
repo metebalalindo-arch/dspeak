@@ -2557,7 +2557,7 @@
               // push/slice). Isso é essencial: a thread de áudio em tempo real
               // (essa classe) roda com um orçamento de tempo muito apertado a
               // cada bloco de 128 amostras — qualquer alocação/cópia de array
-              // (como o antigo `.slice()`) dentro do process() podia estourar
+              // (como o antigo slice()) dentro do process() podia estourar
               // esse orçamento e causar os estalos/robótico que você ouviu.
               // Com ponteiros de leitura/escrita andando em círculo, tudo aqui
               // vira operação O(1), sem nenhuma cópia.
