@@ -2715,24 +2715,7 @@
 
             const track = activePcmBridge.getTrack();
             finish(track); // não faz nada se a promessa já tinha resolvido (por timeout ou por essa mesma chamada)
-
-            // Garante que a faixa acaba no localStream e que quem já estiver assistindo
-            // é avisado — sem depender de qual das duas coisas "venceu a corrida" (o
-            // timeout de 6s de waitForProcessAudioTrack ou o getDisplayMedia resolver).
-            // Sem essa checagem separada, existia uma janela de tempo em que nem o
-            // caminho "normal" (startScreenShare) nem o caminho "atrasado" cobriam a
-            // situação — cada um assumia que o outro tinha cuidado disso, e a faixa
-            // acabava nunca sendo adicionada em lugar nenhum.
-            if (track && localStream && !localStream.getAudioTracks().includes(track)) {
-              console.log('[ProcessAudio] Garantindo que a faixa de áudio está no localStream e avisando quem já está assistindo.');
-              localStream.addTrack(track);
-              const watchingPeerIds = Object.keys(peerConnections);
-              if (watchingPeerIds.length > 0) {
-                console.log(`[ProcessAudio] Avisando ${watchingPeerIds.length} conexão(ões) já aberta(s) sobre a faixa de áudio de processo.`);
-                watchingPeerIds.forEach(id => addScreenTracksToPeer(peerConnections[id]));
-              }
-              showToast('Áudio do programa conectado.');
-            }
+            ensureProcessAudioTrackAttached();
           } catch (err) {
             console.error('[ProcessAudio] Erro:', err);
             finish(null);
@@ -2776,16 +2759,7 @@
         const processAudioTrack = await processAudioTrackPromise;
 
         if (processAudioTrack) {
-          localStream.addTrack(processAudioTrack);
-          // Mesma correção do caminho "atrasado": só adicionar a faixa ao localStream
-          // não é suficiente — quem já estiver assistindo (ou cuja oferta já estava
-          // sendo montada) nesse exato instante não recebe a atualização sozinho.
-          // Precisa avisar EXPLICITAMENTE cada conexão que já está aberta.
-          const watchingPeerIds = Object.keys(peerConnections);
-          if (watchingPeerIds.length > 0) {
-            console.log(`[ProcessAudio] Avisando ${watchingPeerIds.length} conexão(ões) já aberta(s) sobre a faixa de áudio de processo.`);
-            watchingPeerIds.forEach(id => addScreenTracksToPeer(peerConnections[id]));
-          }
+          ensureProcessAudioTrackAttached();
           showToast('Transmitindo com áudio só dessa janela (experimental) — sem risco de eco pra quem assiste.');
         } else if (localStream.getAudioTracks().length === 0) {
           const warnMsg = 'Essa fonte não está enviando áudio. Janelas/apps individuais geralmente não suportam captura de áudio no navegador — escolha "Guia do Chrome" ou "Tela inteira" e marque "Compartilhar áudio da guia/sistema" para transmitir com som.';
@@ -2799,6 +2773,18 @@
           muteAllPeerAudioForStream();
           showToast('Você está transmitindo com áudio do sistema — pra evitar eco, você não vai ouvir os outros enquanto estiver transmitindo assim.');
         }
+
+        // A corrida entre o timeout de 6s (waitForProcessAudioTrack) e o aviso do
+        // processo específico chegando via IPC é apertada demais pra confiar numa
+        // única checagem no momento exato. Tenta de novo por mais alguns segundos —
+        // sem custo nenhum se já tiver funcionado, essa função não faz nada de novo.
+        let attachRetriesLeft = 12;
+        const attachRetryTimer = setInterval(() => {
+          attachRetriesLeft--;
+          if (ensureProcessAudioTrackAttached() || attachRetriesLeft <= 0 || !localStream) {
+            clearInterval(attachRetryTimer);
+          }
+        }, 500);
 
         // Se configuramos um dispositivo de áudio específico nas configurações (ex: o
         // "CABLE Output" de um cabo de áudio virtual, usado pra isolar o som de um
@@ -2906,6 +2892,28 @@
           }
         });
       });
+    }
+
+    // Garante (de forma segura pra chamar várias vezes) que a faixa de áudio do
+    // processo específico acaba no localStream e que quem já estiver assistindo é
+    // avisado. Não depende de NENHUMA ordem entre: o timeout de 6s de
+    // waitForProcessAudioTrack, o getDisplayMedia() resolver, ou o aviso de IPC
+    // chegar — cobre qualquer corrida entre essas três coisas, chamando essa mesma
+    // função de vários pontos diferentes do código.
+    function ensureProcessAudioTrackAttached() {
+      if (!activePcmBridge || !localStream) return false;
+      const track = activePcmBridge.getTrack();
+      if (!track) return false;
+      if (localStream.getAudioTracks().includes(track)) return true; // já estava
+      console.log('[ProcessAudio] Garantindo que a faixa de áudio está no localStream e avisando quem já está assistindo.');
+      localStream.addTrack(track);
+      const watchingPeerIds = Object.keys(peerConnections);
+      if (watchingPeerIds.length > 0) {
+        console.log(`[ProcessAudio] Avisando ${watchingPeerIds.length} conexão(ões) já aberta(s) sobre a faixa de áudio de processo.`);
+        watchingPeerIds.forEach(id => addScreenTracksToPeer(peerConnections[id]));
+      }
+      showToast('Áudio do programa conectado.');
+      return true;
     }
 
     function addScreenTracksToPeer(pc, retriesLeft) {
