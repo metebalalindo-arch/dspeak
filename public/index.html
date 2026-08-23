@@ -2595,17 +2595,9 @@
                 }
               }
 
-              // Se o estoque acabar de vez (atraso maior chegando), volta a "encher o
-              // balde" antes de continuar, em vez de tocar com falhas no meio.
-              if (this.available() < 2) {
-                this.buffering = true;
-                for (let ch = 0; ch < output.length; ch++) output[ch].fill(0);
-                return true;
-              }
-
-              // Consome a fila em PARES (esquerda, direita) — cada "instante" de som,
-              // não uma amostra de cada vez por canal separado (isso embaralhava os
-              // canais e causava a distorção).
+              // Não reenche o buffer inteiro por causa de uma falha pontual (isso
+              // travava num ciclo sem fim de "sempre enchendo, nunca tocando de
+              // verdade") — só toca silêncio bem rapidinho naquele instante e segue.
               for (let i = 0; i < frameCount; i++) {
                 if (this.available() >= 2) {
                   const left = this.readSample();
