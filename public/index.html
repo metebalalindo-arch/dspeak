@@ -1097,6 +1097,14 @@
     // WeakMap por chave ser a própria ligação (pc) — quando ela deixa de existir, a
     // entrada some sozinha, sem precisar limpar manualmente em cada pc.close().
     const screenAudioSenderByPc = new WeakMap();
+    // Mesma ideia, só que pro VÍDEO — cada troca de janela chamava getDisplayMedia()
+    // de novo, criando uma faixa de vídeo nova (com ID diferente), o que fazia
+    // addScreenTracksToPeer tratar como faixa "nova" e criar mais um sender, obrigando
+    // a ligação INTEIRA a renegociar de novo (mesmo já tendo corrigido o áudio pra usar
+    // replaceTrack) — e essa renegociação, mesmo sem mudar o conteúdo do áudio, ainda
+    // mexia o suficiente na sessão pra bagunçar o buffer de áudio de quem assiste. Por
+    // isso o vídeo agora também reaproveita o mesmo sender via replaceTrack.
+    const screenVideoSenderByPc = new WeakMap();
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
     // --- Item 3: microfone/áudio de voz real ---
@@ -2943,6 +2951,12 @@
       let height = selectedResolution === '1440' ? 1440 : (selectedResolution === '1080' ? 1080 : 720);
       let fps = parseInt(selectedFps, 10);
 
+      // Se já tinha uma captura de tela rolando (a pessoa trocou de janela sem parar a
+      // transmissão inteira), guarda a referência antiga aqui — só vamos parar essas
+      // faixas DEPOIS que a nova captura for confirmada com sucesso (ver abaixo), pra
+      // não perder a transmissão em andamento se a pessoa cancelar o seletor de janela.
+      const previousLocalStream = localStream;
+
       // Já começa a "escutar" se o Electron vai pedir áudio de processo específico —
       // isso precisa estar pronto ANTES do getDisplayMedia resolver, senão perdemos o aviso.
       const processAudioTrackPromise = waitForProcessAudioTrack();
@@ -2965,6 +2979,14 @@
           selfBrowserSurface: 'exclude',
           surfaceSwitching: 'include'
         });
+
+        // A nova captura já chegou — agora sim pode encerrar a antiga (se existia). Sem
+        // isso, cada troca de janela deixava a captura de tela ANTERIOR rodando pra
+        // sempre em segundo plano (nunca parada, só sobrescrita na variável), gastando
+        // recursos à toa a cada troca.
+        if (previousLocalStream && previousLocalStream !== localStream) {
+          previousLocalStream.getTracks().forEach(t => t.stop());
+        }
 
         // Mesma razão do processAudioTrack: avisa o WebRTC que é música/áudio de
         // programa, não voz — afeta o modo/taxa do codec Opus escolhido.
@@ -3233,16 +3255,21 @@
       }
 
       localStream.getTracks().forEach(track => {
-        // Faixa de áudio de tela/processo (marcada com contentHint 'music') e essa
-        // ligação já tem um sender pra esse tipo de faixa de uma faixa anterior? Troca
-        // só o CONTEÚDO da faixa nesse sender (sem renegociar nada) — ver explicação
-        // completa onde screenAudioSenderByPc é declarado.
-        if (track.kind === 'audio' && track.contentHint === 'music') {
-          const existingSender = screenAudioSenderByPc.get(pc);
+        // Faixa de áudio de tela/processo (marcada com contentHint 'music') OU faixa de
+        // vídeo — nos dois casos, se essa ligação já tem um sender desse tipo (de uma
+        // troca de janela anterior), troca só o CONTEÚDO da faixa nesse sender (sem
+        // renegociar nada) — ver explicação completa onde screenAudioSenderByPc e
+        // screenVideoSenderByPc são declarados.
+        const senderMap = track.kind === 'video' ? screenVideoSenderByPc
+          : (track.kind === 'audio' && track.contentHint === 'music') ? screenAudioSenderByPc
+          : null;
+        if (senderMap) {
+          const existingSender = senderMap.get(pc);
           if (existingSender) {
             existingSender.replaceTrack(track).catch((err) => {
-              console.warn('[Stream] replaceTrack falhou pro áudio de processo — a faixa deve ter sumido junto com a ligação.', err);
+              console.warn(`[Stream] replaceTrack falhou pra faixa de ${track.kind} — a faixa deve ter sumido junto com a ligação.`, err);
             });
+            if (track.kind === 'video') applyBitrateToSender(existingSender);
             return;
           }
         }
@@ -3250,7 +3277,7 @@
         console.log(`[Stream] faixa ${track.kind} (readyState=${track.readyState}) — já estava sendo enviada? ${already}`);
         if (!already) {
           const sender = pc.addTrack(track, localStream);
-          if (track.kind === 'video') applyBitrateToSender(sender);
+          if (track.kind === 'video') { applyBitrateToSender(sender); screenVideoSenderByPc.set(pc, sender); }
           if (track.kind === 'audio' && track.contentHint === 'music') screenAudioSenderByPc.set(pc, sender);
         }
       });
