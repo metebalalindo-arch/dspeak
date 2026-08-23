@@ -2645,10 +2645,11 @@
           await this.ready;
           if (!this.node) { console.warn('[ProcessAudio] pushChunk chamado mas o node do worklet ainda não existe.'); return; }
           const view = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
-          const sampleCount = Math.floor(uint8Array.byteLength / 2);
+          // 4 bytes por amostra agora (32-bit float), não mais 2 (16-bit inteiro).
+          const sampleCount = Math.floor(uint8Array.byteLength / 4);
           const floatSamples = new Float32Array(sampleCount);
           for (let i = 0; i < sampleCount; i++) {
-            floatSamples[i] = view.getInt16(i * 2, true) / 32768;
+            floatSamples[i] = view.getFloat32(i * 4, true); // já vem "pronto", sem precisar dividir por nada
           }
           this.node.port.postMessage(floatSamples, [floatSamples.buffer]);
 
