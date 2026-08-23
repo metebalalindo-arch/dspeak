@@ -1087,6 +1087,16 @@
     }
 
     let peerConnections = {};
+    // Sender já existente (por ligação) pra faixa de áudio de tela/processo — permite
+    // trocar o CONTEÚDO da faixa (replaceTrack) ao invés de remover e recriar do zero
+    // a cada troca de janela. Remover+recriar obrigava o lado de quem assiste a jogar
+    // fora o buffer de recepção daquela faixa e recomeçar (um "jitterBufferFlush"),
+    // causando um soluço de concentração de falhas — o que soava como chiado bem na
+    // hora da troca. Trocando só o conteúdo da MESMA faixa já existente, não precisa
+    // de renegociação nenhuma pra isso, e o buffer de quem assiste nunca é resetado.
+    // WeakMap por chave ser a própria ligação (pc) — quando ela deixa de existir, a
+    // entrada some sozinha, sem precisar limpar manualmente em cada pc.close().
+    const screenAudioSenderByPc = new WeakMap();
     const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
     // --- Item 3: microfone/áudio de voz real ---
@@ -2845,28 +2855,20 @@
           console.log(`[ProcessAudio] Aviso recebido pra usar áudio do processo ${processId}`);
           try {
             // Se já existia uma captura de áudio de processo rolando (ex: a pessoa
-            // trocou de janela SEM parar a transmissão inteira), precisa desmontar ela
-            // por completo antes de criar a nova — parar o bridge antigo, tirar a
-            // faixa antiga do localStream, E tirar o sender dela de toda ligação já
-            // aberta. Sem isso, cada troca de janela ia empilhando mais uma faixa de
-            // áudio morta em cima da anterior na MESMA ligação (localStream.removeTrack
-            // nunca era chamado) — múltiplas seções de áudio Opus acumuladas na mesma
-            // conexão, cada troca piorando mais. Isso explica o padrão "funciona na
-            // primeira janela, degrada a cada troca depois".
+            // trocou de janela SEM parar a transmissão inteira), precisa parar o bridge
+            // antigo e tirar a faixa morta do localStream — mas NÃO tira o sender dela
+            // das ligações (isso mudou): o sender é reaproveitado via replaceTrack (ver
+            // screenAudioSenderByPc, em addScreenTracksToPeer) assim que a faixa nova
+            // for anexada, então a mesma ligação nunca precisa renegociar nem uma vez
+            // pra trocar de janela — o que também evita o soluço no buffer de recepção
+            // de quem assiste (antes, cada troca fazia o navegador de quem assiste
+            // jogar fora o buffer e recomeçar do zero pra faixa "nova").
             if (activePcmBridge) {
               const oldTrack = activePcmBridge.getTrack();
               activePcmBridge.stop();
               activePcmBridge = null;
               if (oldTrack && localStream && localStream.getTracks().includes(oldTrack)) {
                 localStream.removeTrack(oldTrack);
-              }
-              if (oldTrack) {
-                Object.values(peerConnections).forEach(pc => {
-                  const sender = pc.getSenders().find(s => s.track && s.track.id === oldTrack.id);
-                  if (sender) {
-                    try { pc.removeTrack(sender); } catch (e) { /* já pode ter sumido sozinha se a ligação caiu */ }
-                  }
-                });
               }
             }
 
@@ -3231,11 +3233,25 @@
       }
 
       localStream.getTracks().forEach(track => {
+        // Faixa de áudio de tela/processo (marcada com contentHint 'music') e essa
+        // ligação já tem um sender pra esse tipo de faixa de uma faixa anterior? Troca
+        // só o CONTEÚDO da faixa nesse sender (sem renegociar nada) — ver explicação
+        // completa onde screenAudioSenderByPc é declarado.
+        if (track.kind === 'audio' && track.contentHint === 'music') {
+          const existingSender = screenAudioSenderByPc.get(pc);
+          if (existingSender) {
+            existingSender.replaceTrack(track).catch((err) => {
+              console.warn('[Stream] replaceTrack falhou pro áudio de processo — a faixa deve ter sumido junto com a ligação.', err);
+            });
+            return;
+          }
+        }
         const already = pc.getSenders().some(s => s.track && s.track.id === track.id);
         console.log(`[Stream] faixa ${track.kind} (readyState=${track.readyState}) — já estava sendo enviada? ${already}`);
         if (!already) {
           const sender = pc.addTrack(track, localStream);
           if (track.kind === 'video') applyBitrateToSender(sender);
+          if (track.kind === 'audio' && track.contentHint === 'music') screenAudioSenderByPc.set(pc, sender);
         }
       });
     }
