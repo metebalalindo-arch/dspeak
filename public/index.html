@@ -2915,9 +2915,19 @@
           const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
           const targetName = targetUser ? targetUser.name : "Amigo";
           addScreenStream(targetName, stream, targetSocketId);
-        } else {
-          // Faixa de voz (microfone) — toca num <audio> escondido, nunca no <video> da tela.
-          attachRemoteMicAudio(targetSocketId, stream);
+        } else if (event.track.kind === 'audio') {
+          // Pode ser o microfone da pessoa OU uma faixa de áudio extra da transmissão
+          // de tela dela que chegou atrasada (depois do vídeo já estar rolando, com o
+          // áudio de processo específico) — nesse segundo caso, precisa grudar no vídeo
+          // já em exibição, não ser confundida com o áudio de voz normal.
+          const activeScreen = Object.values(activeStreams).find(s => s.socketId === targetSocketId);
+          if (activeScreen && activeScreen.stream && !activeScreen.stream.getAudioTracks().includes(event.track)) {
+            console.log(`[WebRTC] Faixa de áudio extra da transmissão de ${targetSocketId} chegou atrasada — anexando ao vídeo já em exibição.`);
+            activeScreen.stream.addTrack(event.track);
+          } else {
+            // Faixa de voz (microfone) — toca num <audio> escondido, nunca no <video> da tela.
+            attachRemoteMicAudio(targetSocketId, stream);
+          }
         }
       };
 
