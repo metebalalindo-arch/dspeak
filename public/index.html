@@ -2529,9 +2529,9 @@
 
     class PCMToMediaStreamBridge {
       constructor(sampleRate) {
-        // 44100Hz é a taxa que o dspeak-audio.exe usa de verdade — precisa bater
+        // 48000Hz é a taxa que o dspeak-audio.exe usa de verdade — precisa bater
         // certinho, senão o áudio sai rápido/lento demais.
-        this.ctx = new AudioContext({ sampleRate: sampleRate || 44100 });
+        this.ctx = new AudioContext({ sampleRate: sampleRate || 48000 });
         this.dest = this.ctx.createMediaStreamDestination();
         this.node = null;
         this.ready = this._setup();
@@ -2561,7 +2561,7 @@
               // esse orçamento e causar os estalos/robótico que você ouviu.
               // Com ponteiros de leitura/escrita andando em círculo, tudo aqui
               // vira operação O(1), sem nenhuma cópia.
-              this.minBufferSamples = 4410 * 2 * 3; // ~300ms a 44100Hz, estéreo
+              this.minBufferSamples = 4800 * 2 * 3; // ~300ms a 48000Hz, estéreo
               this.capacity = this.minBufferSamples * 5; // ~500ms de teto
               this.ringBuffer = new Float32Array(this.capacity);
               this.writeIndex = 0;
@@ -2636,9 +2636,9 @@
                 }
               }
 
-              // Reporta a cada ~1 segundo (44100 frames) quanto do áudio foi
+              // Reporta a cada ~1 segundo (48000 frames) quanto do áudio foi
               // preenchido com silêncio por falta de dado — número real, não achismo.
-              if (this._framesTotal - this._lastStatsLogFrame >= 44100) {
+              if (this._framesTotal - this._lastStatsLogFrame >= 48000) {
                 const pct = ((this._framesUnderrun / this._framesTotal) * 100).toFixed(1);
                 this.port.postMessage({ type: 'stats', underrunPct: pct, totalFrames: this._framesTotal, underrunFrames: this._framesUnderrun });
                 this._lastStatsLogFrame = this._framesTotal;
@@ -2664,7 +2664,7 @@
         }
       }
 
-      // Espera receber PCM 16-bit assinado, little-endian, 48kHz, estéreo (o formato
+      // Espera receber PCM 32-bit float, little-endian, 48kHz, estéreo (o formato
       // que o dspeak-audio.exe escreve). Se o áudio sair errado na prática (velocidade,
       // distorção), é bem provável que precise ajustar esses parâmetros junto do .cpp.
       async pushChunk(uint8Array) {
