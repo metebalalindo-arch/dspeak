@@ -3081,37 +3081,71 @@
     function preferOpusMusicModeInSdp(sdp) {
       try {
         const lines = sdp.split('\r\n');
-        // Acha o "payload type" numérico que o navegador atribuiu ao Opus nessa sessão
-        // (varia — não é sempre o mesmo número).
-        const opusRtpmapLine = lines.find(l => /^a=rtpmap:\d+ opus\/48000/i.test(l));
-        if (!opusRtpmapLine) return sdp; // essa conexão não tem Opus (ou não tem áudio) — não mexe em nada
-        const payloadType = opusRtpmapLine.match(/^a=rtpmap:(\d+) /)[1];
-
         const desiredParams = 'minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=256000;usedtx=0';
-        const fmtpIndex = lines.findIndex(l => l.startsWith(`a=fmtp:${payloadType} `));
-        if (fmtpIndex !== -1) {
-          // Já existe uma linha fmtp pra esse payload — funde os parâmetros novos com
-          // o que já estava lá (em vez de simplesmente substituir tudo), preservando
-          // qualquer coisa que o navegador já tivesse configurado por conta própria.
-          const existing = lines[fmtpIndex].slice(`a=fmtp:${payloadType} `.length);
+
+        // Essa ligação manda DUAS faixas de áudio na mesma conexão (voz do microfone +
+        // áudio do processo/tela) — e o WebRTC costuma dar o MESMO número de payload
+        // type (normalmente 111) pro Opus nas duas, já que é o mesmo codec. A regra do
+        // BUNDLE (agrupamento usado aqui) exige que, se duas seções m= usam o mesmo
+        // número de payload, os parâmetros do codec sejam IDÊNTICOS byte a byte nas
+        // duas — senão o navegador rejeita como "codec collision" (foi exatamente esse
+        // erro que a gente via se repetindo no log). Por isso, em vez de achar só a
+        // PRIMEIRA linha de Opus e mexer só nela (o bug da versão anterior), agora a
+        // gente acha TODAS as ocorrências e aplica exatamente o mesmo texto final em
+        // todas — silenciosamente, o navegador ficava rejeitando o ajuste e voltando
+        // pro modo voz padrão em pelo menos uma das faixas, sem avisar de verdade que
+        // tinha falhado (por isso funcionava "de vez em quando", dependendo de qual
+        // faixa ganhava).
+        const opusPayloadTypes = new Set();
+        for (const l of lines) {
+          const m = /^a=rtpmap:(\d+) opus\/48000/i.exec(l);
+          if (m) opusPayloadTypes.add(m[1]);
+        }
+        if (opusPayloadTypes.size === 0) return sdp; // essa conexão não tem Opus (ou não tem áudio) — não mexe em nada
+
+        // Pra cada payload type de Opus encontrado, monta UM texto final único (baseado
+        // na primeira ocorrência de fmtp pra esse payload, se existir, fundido com os
+        // parâmetros desejados) — e usa esse MESMO texto em toda seção m= que tiver
+        // esse payload, garantindo consistência.
+        const canonicalFmtpByPayload = new Map();
+        for (const pt of opusPayloadTypes) {
+          const existingLine = lines.find(l => l.startsWith(`a=fmtp:${pt} `));
           const merged = new Map();
-          for (const pair of existing.split(';')) {
-            const [k, v] = pair.split('=');
-            if (k) merged.set(k.trim(), v);
+          if (existingLine) {
+            const existing = existingLine.slice(`a=fmtp:${pt} `.length);
+            for (const pair of existing.split(';')) {
+              const [k, v] = pair.split('=');
+              if (k) merged.set(k.trim(), v);
+            }
           }
           for (const pair of desiredParams.split(';')) {
             const [k, v] = pair.split('=');
             merged.set(k.trim(), v);
           }
           const mergedStr = Array.from(merged.entries()).map(([k, v]) => (v !== undefined ? `${k}=${v}` : k)).join(';');
-          lines[fmtpIndex] = `a=fmtp:${payloadType} ${mergedStr}`;
-        } else {
-          // Não tinha linha fmtp nenhuma pra esse payload ainda — insere logo depois
-          // do rtpmap correspondente.
-          const rtpmapIndex = lines.indexOf(opusRtpmapLine);
-          lines.splice(rtpmapIndex + 1, 0, `a=fmtp:${payloadType} ${desiredParams}`);
+          canonicalFmtpByPayload.set(pt, `a=fmtp:${pt} ${mergedStr}`);
         }
-        return lines.join('\r\n');
+
+        // Agora aplica: substitui toda linha fmtp existente desses payloads pelo texto
+        // canônico, e insere uma linha fmtp nova (logo após o rtpmap correspondente)
+        // em toda seção m= que tiver o rtpmap mas ainda não tiver fmtp nenhuma.
+        const result = [];
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const fmtpMatch = /^a=fmtp:(\d+) /.exec(line);
+          if (fmtpMatch && canonicalFmtpByPayload.has(fmtpMatch[1])) {
+            result.push(canonicalFmtpByPayload.get(fmtpMatch[1]));
+            continue;
+          }
+          result.push(line);
+          const rtpmapMatch = /^a=rtpmap:(\d+) opus\/48000/i.exec(line);
+          if (rtpmapMatch && canonicalFmtpByPayload.has(rtpmapMatch[1])) {
+            const pt = rtpmapMatch[1];
+            const alreadyHasFmtp = lines.some(l => l.startsWith(`a=fmtp:${pt} `));
+            if (!alreadyHasFmtp) result.push(canonicalFmtpByPayload.get(pt));
+          }
+        }
+        return result.join('\r\n');
       } catch (err) {
         console.warn('[WebRTC] Não consegui ajustar o SDP do Opus pra modo música — seguindo com o padrão do navegador.', err);
         return sdp; // qualquer erro aqui, melhor seguir com o SDP original do que quebrar a chamada inteira
