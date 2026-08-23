@@ -877,6 +877,16 @@
 
     let connectedUsersList = [];
     let activeStreams = {};
+    // IDs de MediaStream que a gente já sabe que são de compartilhamento de tela (têm
+    // vídeo). Existe porque a ordem de chegada de áudio e vídeo via WebRTC NÃO é
+    // garantida — às vezes o áudio chega primeiro. Sem isso, um áudio de tela que
+    // chegasse antes do vídeo era classificado (errado) como microfone, tocado uma vez
+    // via <audio> escondido — e DEPOIS, quando o vídeo chegava, tocado de novo dentro do
+    // <video> (mesmo MediaStream, já contém esse áudio) — duas cópias do mesmo som
+    // tocando quase juntas, levemente fora de sincronia, causando cancelamento de fase
+    // (algumas frequências da música somem) e um efeito parecido com robotização/eco na
+    // voz. Ver uso em pc.ontrack.
+    const knownScreenStreamIds = new Set();
 
     let selectedResolution = "1080";
     let selectedFps = "60";
@@ -3234,32 +3244,55 @@
 
       pc.ontrack = (event) => {
         const stream = event.streams[0];
+        const track = event.track;
         const hasVideo = stream && stream.getVideoTracks().length > 0;
-        console.log(`[WebRTC] ontrack de ${targetSocketId}: kind=${event.track.kind}, hasVideo=${hasVideo}`);
+        console.log(`[WebRTC] ontrack de ${targetSocketId}: kind=${track.kind}, hasVideo=${hasVideo}`);
 
-        if (hasVideo) {
-          // Faixa de compartilhamento de tela (vídeo + áudio do sistema juntos).
+        if (track.kind === 'video') {
+          knownScreenStreamIds.add(stream.id);
+          // Faixa de compartilhamento de tela (vídeo + áudio do sistema juntos, quando
+          // aplicável — o áudio pode já estar aqui dentro do stream ou chegar em
+          // seguida, os dois casos já são tratados).
           const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
           const targetUser = usersInChannel.find(u => u.socketId === targetSocketId);
           const targetName = targetUser ? targetUser.name : "Amigo";
           addScreenStream(targetName, stream, targetSocketId);
-        } else if (event.track.kind === 'audio') {
-          // Pode ser o microfone da pessoa OU uma faixa de áudio extra da transmissão
-          // de tela dela que chegou atrasada (depois do vídeo já estar rolando, com o
-          // áudio de processo específico) — nesse segundo caso, precisa grudar no vídeo
-          // já em exibição, não ser confundida com o áudio de voz normal.
-          const activeScreen = Object.values(activeStreams).find(s => s.socketId === targetSocketId);
-          if (activeScreen && activeScreen.stream && !activeScreen.stream.getAudioTracks().includes(event.track)) {
-            console.log(`[WebRTC] Faixa de áudio extra da transmissão de ${targetSocketId} chegou atrasada — anexando ao vídeo já em exibição.`);
-            activeScreen.stream.addTrack(event.track);
-            // Alguns navegadores não "percebem" sozinhos uma faixa adicionada depois
-            // que o vídeo já estava tocando — força atualizar o elemento de vídeo.
-            renderStreamsContainer();
-          } else {
-            // Faixa de voz (microfone) — toca num <audio> escondido, nunca no <video> da tela.
-            attachRemoteMicAudio(targetSocketId, stream);
-          }
+          return;
         }
+
+        // track.kind === 'audio' a partir daqui.
+        if (knownScreenStreamIds.has(stream.id) || hasVideo) {
+          // Já sabemos com certeza que esse stream é de tela (ou o vídeo já chegou
+          // junto) — nunca toca em <audio> escondido, senão toca duas vezes.
+          knownScreenStreamIds.add(stream.id);
+          const activeScreen = Object.values(activeStreams).find(s => s.socketId === targetSocketId);
+          if (activeScreen && activeScreen.stream && !activeScreen.stream.getAudioTracks().includes(track)) {
+            console.log(`[WebRTC] Faixa de áudio extra da transmissão de ${targetSocketId} chegou atrasada — anexando ao vídeo já em exibição.`);
+            activeScreen.stream.addTrack(track);
+            renderStreamsContainer();
+          }
+          // Se activeScreen ainda não existe (o vídeo desse MESMO stream vai chegar
+          // logo — addScreenStream vai usar esse stream, que já contém esse áudio,
+          // então não precisa fazer nada aqui: o <video> vai tocar o áudio sozinho.
+          return;
+        }
+
+        // Chegou um áudio e AINDA não sabemos se é microfone ou áudio de tela chegando
+        // adiantado (vídeo do mesmo stream pode estar a caminho). Em vez de decidir na
+        // hora — o que já causou tocar o mesmo áudio duas vezes de jeitos diferentes —
+        // espera um instante pra ter certeza antes de tratar como microfone.
+        setTimeout(() => {
+          if (knownScreenStreamIds.has(stream.id) || stream.getVideoTracks().length > 0) {
+            // O vídeo chegou nesse meio tempo — é áudio de tela, não microfone. O
+            // <video> (criado por addScreenStream) já vai tocar esse áudio sozinho,
+            // por ser o mesmo objeto MediaStream — não faz nada aqui.
+            knownScreenStreamIds.add(stream.id);
+            return;
+          }
+          // Depois de esperar, ainda não apareceu vídeo nenhum pra esse stream — é
+          // mesmo o microfone da pessoa.
+          attachRemoteMicAudio(targetSocketId, stream);
+        }, 400);
       };
 
       pc.onicecandidate = (event) => {
