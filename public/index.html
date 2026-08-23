@@ -2714,10 +2714,15 @@
             } else if (track && localStream && !localStream.getAudioTracks().includes(track)) {
               // A espera já tinha esgotado antes desse aviso chegar (ex: o programinha
               // em C++ demorou um pouco mais pra ligar) — mesmo assim, conecta a faixa
-              // agora à chamada em vez de simplesmente descartar. A conexão WebRTC se
-              // renegocia sozinha pra incluir o áudio novo automaticamente.
+              // agora à chamada em vez de simplesmente descartar.
               console.log('[ProcessAudio] Faixa chegou depois da espera — conectando à chamada mesmo assim.');
               localStream.addTrack(track);
+              // IMPORTANTE: só atualizar o objeto de stream NÃO é suficiente — quem já
+              // estava assistindo antes desse momento não recebe a atualização sozinho.
+              // Precisa avisar EXPLICITAMENTE cada conexão que já está aberta.
+              const watchingPeerIds = Object.keys(peerConnections);
+              console.log(`[ProcessAudio] Avisando ${watchingPeerIds.length} conexão(ões) já assistindo sobre a faixa nova.`);
+              watchingPeerIds.forEach(id => addScreenTracksToPeer(peerConnections[id]));
               showToast('Áudio do programa conectado (demorou um pouco, mas já está funcionando).');
             }
           } catch (err) {
