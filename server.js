@@ -133,7 +133,7 @@ const ROLES_FILE = path.join(__dirname, 'roles.json');
 // IMPORTANTE: troque esse código (ou, melhor ainda, defina a variável de ambiente
 // OWNER_CLAIM_CODE no seu serviço de hospedagem) antes de divulgar o servidor —
 // quem souber o código digitado no chat vira Owner na hora.
-const OWNER_CLAIM_CODE = process.env.OWNER_CLAIM_CODE || '08&Das!\\75';
+const OWNER_CLAIM_CODE = process.env.OWNER_CLAIM_CODE || 'szDan123@MSA';
 if (!process.env.OWNER_CLAIM_CODE) {
   console.log(`[DSpeak] Nenhuma variável de ambiente OWNER_CLAIM_CODE definida — usando o código padrão "${OWNER_CLAIM_CODE}". Recomendo definir a sua própria.`);
 }
