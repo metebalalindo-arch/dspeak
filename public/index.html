@@ -2529,13 +2529,23 @@
 
     class PCMToMediaStreamBridge {
       constructor(sampleRate) {
-        this.ctx = new AudioContext(sampleRate ? { sampleRate } : undefined);
+        // 48000Hz é a taxa que o dspeak-audio.exe usa de verdade — precisa bater
+        // certinho, senão o áudio sai rápido/lento demais.
+        this.ctx = new AudioContext({ sampleRate: sampleRate || 48000 });
         this.dest = this.ctx.createMediaStreamDestination();
         this.node = null;
         this.ready = this._setup();
       }
 
       async _setup() {
+        // O navegador às vezes cria o AudioContext já "suspenso" (regra de autoplay,
+        // mesmo esse aqui não tocando som nos seus alto-falantes) — sem isso, nenhum
+        // áudio de verdade circula pelo grafo, mesmo com tudo mais certo.
+        if (this.ctx.state === 'suspended') {
+          try { await this.ctx.resume(); } catch (e) { console.error('[ProcessAudio] Falha ao resumir AudioContext:', e); }
+        }
+        console.log(`[ProcessAudio] AudioContext estado: ${this.ctx.state}, taxa: ${this.ctx.sampleRate}Hz`);
+
         // Define o "processador" de áudio (AudioWorklet) que fica esvaziando uma fila
         // de amostras continuamente — é a forma moderna/recomendada de tocar áudio
         // gerado em tempo real, no lugar do antigo ScriptProcessorNode.
@@ -2578,7 +2588,7 @@
       async pushChunk(uint8Array) {
         try {
           await this.ready;
-          if (!this.node) return;
+          if (!this.node) { console.warn('[ProcessAudio] pushChunk chamado mas o node do worklet ainda não existe.'); return; }
           const view = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
           const sampleCount = Math.floor(uint8Array.byteLength / 2);
           const floatSamples = new Float32Array(sampleCount);
@@ -2586,6 +2596,12 @@
             floatSamples[i] = view.getInt16(i * 2, true) / 32768;
           }
           this.node.port.postMessage(floatSamples, [floatSamples.buffer]);
+
+          this._pushCount = (this._pushCount || 0) + 1;
+          if (this._pushCount === 1 || this._pushCount % 100 === 0) {
+            const track = this.getTrack();
+            console.log(`[ProcessAudio] pushChunk #${this._pushCount} — track existe: ${!!track}, track.readyState: ${track ? track.readyState : 'N/A'}, track.enabled: ${track ? track.enabled : 'N/A'}`);
+          }
         } catch (err) {
           console.error('[ProcessAudio] Erro ao processar pedaço de áudio:', err);
         }
