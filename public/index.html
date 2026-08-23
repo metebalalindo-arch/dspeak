@@ -3214,15 +3214,15 @@
         console.log(`[WebRTC] onnegotiationneeded com ${targetSocketId} (signalingState=${pc.signalingState})`);
         try {
           pc.makingOffer = true;
-          await pc.setLocalDescription();
-          // Reescreve o SDP recém-criado pra pedir modo música no Opus (ver
-          // preferOpusMusicModeInSdp) — precisa chamar setLocalDescription() de novo
-          // com a versão ajustada, já que não dá pra editar pc.localDescription
-          // diretamente.
-          const mungedSdp = preferOpusMusicModeInSdp(pc.localDescription.sdp);
-          if (mungedSdp !== pc.localDescription.sdp) {
-            await pc.setLocalDescription({ type: pc.localDescription.type, sdp: mungedSdp });
-          }
+          // Precisa criar a oferta explicitamente (createOffer) em vez de usar
+          // setLocalDescription() "implícito" (sem argumentos) — o navegador só deixa
+          // ajustar o SDP se setLocalDescription for chamado UMA ÚNICA VEZ com a versão
+          // final. Chamar setLocalDescription() implícito e depois de novo com o SDP
+          // ajustado (como fazíamos antes) dá erro: "The SDP does not match the
+          // previously generated SDP for this type".
+          const offer = await pc.createOffer();
+          const mungedSdp = preferOpusMusicModeInSdp(offer.sdp);
+          await pc.setLocalDescription({ type: offer.type, sdp: mungedSdp });
           console.log(`[WebRTC] mandando offer pra ${targetSocketId}`);
           socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
         } catch (err) {
