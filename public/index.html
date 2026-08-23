@@ -2165,6 +2165,11 @@
       if (connectedVoiceChannel) {
         const newPc = createPeerConnection(targetSocketId);
         addMicTrackToPeer(newPc, targetSocketId);
+        // Se estivermos transmitindo tela nesse momento, reanexa vídeo/áudio na ligação
+        // nova imediatamente — sem isso, quem já estava assistindo ficaria com a tela
+        // congelada até clicar em "Assistir" de novo manualmente. addScreenTracksToPeer
+        // não faz nada se não tiver localStream, então é seguro chamar sempre.
+        if (localStream) addScreenTracksToPeer(newPc);
       }
     }
 
@@ -2986,6 +2991,19 @@
         // recursos à toa a cada troca.
         if (previousLocalStream && previousLocalStream !== localStream) {
           previousLocalStream.getTracks().forEach(t => t.stop());
+
+          // Troca de janela EM ANDAMENTO (não é a primeira transmissão): em vez de
+          // tentar reaproveitar a ligação já aberta com quem está assistindo (trocar só
+          // o conteúdo das faixas, com replaceTrack), fecha e recria ela do ZERO — a
+          // pessoa confirmou repetidas vezes que só reiniciar tudo do zero (equivalente
+          // a sair e voltar da sala) sempre sai limpo, então essa troca faz exatamente
+          // isso a cada troca de janela: negociação, ICE, e buffer de recepção zerados
+          // de novo, sem nenhum estado antigo grudado. Custa um soluço breve de
+          // reconexão a cada troca, mas garante o mesmo resultado limpo que reiniciar
+          // o app inteiro.
+          Object.keys(peerConnections).forEach(socketId => {
+            resetPeerConnectionWith(socketId);
+          });
         }
 
         // Mesma razão do processAudioTrack: avisa o WebRTC que é música/áudio de
