@@ -2529,9 +2529,9 @@
 
     class PCMToMediaStreamBridge {
       constructor(sampleRate) {
-        // 48000Hz é a taxa que o dspeak-audio.exe usa de verdade — precisa bater
+        // 44100Hz é a taxa que o dspeak-audio.exe usa de verdade — precisa bater
         // certinho, senão o áudio sai rápido/lento demais.
-        this.ctx = new AudioContext({ sampleRate: sampleRate || 48000 });
+        this.ctx = new AudioContext({ sampleRate: sampleRate || 44100 });
         this.dest = this.ctx.createMediaStreamDestination();
         this.node = null;
         this.ready = this._setup();
@@ -2564,7 +2564,7 @@
               // isso evita estalos/falhas quando os pedaços de áudio não chegam num
               // ritmo perfeitamente parelho (o normal em qualquer transmissão real).
               // x2 porque cada "instante" de som ocupa 2 posições na fila (esq + dir).
-              this.minBufferSamples = 4800 * 2; // ~100ms a 48kHz, estéreo
+              this.minBufferSamples = 4410 * 2; // ~100ms a 44100Hz, estéreo
               this.buffering = true;
               this.port.onmessage = (e) => {
                 for (let i = 0; i < e.data.length; i++) this.queue.push(e.data[i]);
