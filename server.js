@@ -2718,6 +2718,27 @@
             }
           };
           this.node.connect(this.dest);
+
+          // ---- DIAGNÓSTICO TEMPORÁRIO: monitor local ----
+          // Liga o mesmo áudio capturado também nos SEUS alto-falantes (não só
+          // mandando pro WebRTC) — passando por um GainNode mudo por padrão. Isso
+          // deixa ouvir, no PC de quem está transmitindo, exatamente o que está
+          // sendo capturado, SEM passar pelo WebRTC/Opus/rede nenhum. Se o chiado já
+          // estiver aí ao ligar isso, o problema é na captura (C++/worklet). Se
+          // estiver limpo aqui mas chiado do lado de quem assiste, o problema é
+          // especificamente no envio (WebRTC/codec/rede).
+          // Pra ligar: abre o Console (F12) e digita  window.dspeakMonitor(true)
+          // Pra desligar de novo:                      window.dspeakMonitor(false)
+          this._monitorGain = this.ctx.createGain();
+          this._monitorGain.gain.value = 0; // mudo por padrão — só liga se você pedir
+          this.node.connect(this._monitorGain);
+          this._monitorGain.connect(this.ctx.destination);
+          window.dspeakMonitor = (ligado) => {
+            if (this._monitorGain) {
+              this._monitorGain.gain.value = ligado ? 1 : 0;
+              console.log(`[ProcessAudio] Monitor local ${ligado ? 'LIGADO — você deve ouvir o áudio capturado agora, direto, sem passar pelo WebRTC' : 'desligado'}.`);
+            }
+          };
         } finally {
           URL.revokeObjectURL(url);
         }
