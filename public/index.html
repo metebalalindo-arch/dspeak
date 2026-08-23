@@ -2565,9 +2565,16 @@
               // ritmo perfeitamente parelho (o normal em qualquer transmissão real).
               // x2 porque cada "instante" de som ocupa 2 posições na fila (esq + dir).
               this.minBufferSamples = 4410 * 2; // ~100ms a 44100Hz, estéreo
+              // Teto máximo do estoque — se passar disso, é sinal de que o atraso está
+              // crescendo (chegando mais rápido do que tocamos). Em vez de deixar
+              // acumular pra sempre, descarta o mais antigo e volta pro tamanho ideal.
+              this.maxBufferSamples = this.minBufferSamples * 5; // ~500ms
               this.buffering = true;
               this.port.onmessage = (e) => {
                 for (let i = 0; i < e.data.length; i++) this.queue.push(e.data[i]);
+                if (this.available() > this.maxBufferSamples) {
+                  this.readIndex += this.available() - this.minBufferSamples;
+                }
               };
             }
 
