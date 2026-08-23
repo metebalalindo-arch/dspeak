@@ -2774,6 +2774,15 @@
 
         if (processAudioTrack) {
           localStream.addTrack(processAudioTrack);
+          // Mesma correção do caminho "atrasado": só adicionar a faixa ao localStream
+          // não é suficiente — quem já estiver assistindo (ou cuja oferta já estava
+          // sendo montada) nesse exato instante não recebe a atualização sozinho.
+          // Precisa avisar EXPLICITAMENTE cada conexão que já está aberta.
+          const watchingPeerIds = Object.keys(peerConnections);
+          if (watchingPeerIds.length > 0) {
+            console.log(`[ProcessAudio] Avisando ${watchingPeerIds.length} conexão(ões) já aberta(s) sobre a faixa de áudio de processo.`);
+            watchingPeerIds.forEach(id => addScreenTracksToPeer(peerConnections[id]));
+          }
           showToast('Transmitindo com áudio só dessa janela (experimental) — sem risco de eco pra quem assiste.');
         } else if (localStream.getAudioTracks().length === 0) {
           const warnMsg = 'Essa fonte não está enviando áudio. Janelas/apps individuais geralmente não suportam captura de áudio no navegador — escolha "Guia do Chrome" ou "Tela inteira" e marque "Compartilhar áudio da guia/sistema" para transmitir com som.';
@@ -2805,6 +2814,11 @@
             const deviceTrack = deviceStream.getAudioTracks()[0];
             if (deviceTrack) {
               localStream.addTrack(deviceTrack);
+              const watchingPeerIds2 = Object.keys(peerConnections);
+              if (watchingPeerIds2.length > 0) {
+                console.log(`[ProcessAudio] Avisando ${watchingPeerIds2.length} conexão(ões) já aberta(s) sobre o dispositivo de áudio extra.`);
+                watchingPeerIds2.forEach(id => addScreenTracksToPeer(peerConnections[id]));
+              }
               showToast('Transmitindo com o dispositivo de áudio extra configurado (isolado, sem risco de eco).');
             }
           } catch (err) {
