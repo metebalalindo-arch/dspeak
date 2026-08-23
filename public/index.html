@@ -2564,7 +2564,7 @@
               // isso evita estalos/falhas quando os pedaços de áudio não chegam num
               // ritmo perfeitamente parelho (o normal em qualquer transmissão real).
               // x2 porque cada "instante" de som ocupa 2 posições na fila (esq + dir).
-              this.minBufferSamples = 4410 * 2; // ~100ms a 44100Hz, estéreo
+              this.minBufferSamples = 4410 * 2 * 3; // ~300ms a 44100Hz, estéreo
               // Teto máximo do estoque — se passar disso, é sinal de que o atraso está
               // crescendo (chegando mais rápido do que tocamos). Em vez de deixar
               // acumular pra sempre, descarta o mais antigo e volta pro tamanho ideal.
@@ -2604,16 +2604,21 @@
 
               // Não reenche o buffer inteiro por causa de uma falha pontual (isso
               // travava num ciclo sem fim de "sempre enchendo, nunca tocando de
-              // verdade") — só toca silêncio bem rapidinho naquele instante e segue.
+              // verdade"). Quando faltar áudio, em vez de cortar seco pro silêncio
+              // (que soa como um estalo), vai suavizando até zero aos poucos.
               for (let i = 0; i < frameCount; i++) {
                 if (this.available() >= 2) {
-                  const left = this.readSample();
-                  const right = this.readSample();
-                  output[0][i] = left;
-                  if (output.length > 1) output[1][i] = right;
+                  this.lastLeft = this.readSample();
+                  this.lastRight = this.readSample();
+                  output[0][i] = this.lastLeft;
+                  if (output.length > 1) output[1][i] = this.lastRight;
                 } else {
-                  output[0][i] = 0;
-                  if (output.length > 1) output[1][i] = 0;
+                  // Vai reduzindo aos poucos (5% a cada amostra) em vez de cair
+                  // direto pra zero — bem mais suave ao ouvido.
+                  this.lastLeft = (this.lastLeft || 0) * 0.95;
+                  this.lastRight = (this.lastRight || 0) * 0.95;
+                  output[0][i] = this.lastLeft;
+                  if (output.length > 1) output[1][i] = this.lastRight;
                 }
               }
               return true;
