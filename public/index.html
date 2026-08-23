@@ -2967,6 +2967,9 @@
           if (activeScreen && activeScreen.stream && !activeScreen.stream.getAudioTracks().includes(event.track)) {
             console.log(`[WebRTC] Faixa de áudio extra da transmissão de ${targetSocketId} chegou atrasada — anexando ao vídeo já em exibição.`);
             activeScreen.stream.addTrack(event.track);
+            // Alguns navegadores não "percebem" sozinhos uma faixa adicionada depois
+            // que o vídeo já estava tocando — força atualizar o elemento de vídeo.
+            renderStreamsContainer();
           } else {
             // Faixa de voz (microfone) — toca num <audio> escondido, nunca no <video> da tela.
             attachRemoteMicAudio(targetSocketId, stream);
