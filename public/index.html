@@ -2812,9 +2812,14 @@
 
       // Remove qualquer listener de uma transmissão anterior antes de criar um novo —
       // sem isso, cada transmissão nova ficava empilhando um listener em cima do
-      // anterior, todos ainda "vivos" e recebendo dados ao mesmo tempo.
+      // anterior, todos ainda "vivos" e recebendo dados ao mesmo tempo. Isso incluía
+      // o onUseProcessAudio: sem essa limpeza, reiniciar a transmissão mais de uma vez
+      // na mesma sessão do app fazia UM aviso disparar VÁRIOS listeners acumulados,
+      // cada um iniciando sua própria captura — dois processos .exe rodando ao mesmo
+      // tempo, misturando dois fluxos de áudio como se fossem um só (puro ruído).
       if (currentChunkHandler) { window.electronAudioAPI.offProcessAudioChunk(currentChunkHandler); currentChunkHandler = null; }
       if (currentErrorHandler) { window.electronAudioAPI.offProcessAudioError(currentErrorHandler); currentErrorHandler = null; }
+      if (window.electronAudioAPI.offUseProcessAudio) { window.electronAudioAPI.offUseProcessAudio(); }
 
       return new Promise((resolve) => {
         let settled = false;
@@ -3014,6 +3019,7 @@
           window.electronAudioAPI.stopProcessAudioCapture();
           if (currentChunkHandler) { window.electronAudioAPI.offProcessAudioChunk(currentChunkHandler); currentChunkHandler = null; }
           if (currentErrorHandler) { window.electronAudioAPI.offProcessAudioError(currentErrorHandler); currentErrorHandler = null; }
+          if (window.electronAudioAPI.offUseProcessAudio) { window.electronAudioAPI.offUseProcessAudio(); }
         }
       }
 
