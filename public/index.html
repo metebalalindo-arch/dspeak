@@ -2553,17 +2553,68 @@
           class PCMWorkletProcessor extends AudioWorkletProcessor {
             constructor() {
               super();
+              // A fila guarda amostras intercaladas (esquerda, direita, esquerda,
+              // direita...) — exatamente como chegam do áudio original em estéreo.
+              // Em vez de remover um item por vez (.shift(), que fica mais lento
+              // conforme a fila cresce), usamos um "ponteiro de leitura" e só
+              // compactamos a fila de vez em quando — bem mais rápido.
               this.queue = [];
+              this.readIndex = 0;
+              // Espera ter uma "folga" de ~100ms guardada antes de começar a tocar —
+              // isso evita estalos/falhas quando os pedaços de áudio não chegam num
+              // ritmo perfeitamente parelho (o normal em qualquer transmissão real).
+              // x2 porque cada "instante" de som ocupa 2 posições na fila (esq + dir).
+              this.minBufferSamples = 4800 * 2; // ~100ms a 48kHz, estéreo
+              this.buffering = true;
               this.port.onmessage = (e) => {
                 for (let i = 0; i < e.data.length; i++) this.queue.push(e.data[i]);
               };
             }
+
+            available() { return this.queue.length - this.readIndex; }
+
+            readSample() {
+              const v = this.queue[this.readIndex++];
+              if (this.readIndex > 48000) {
+                this.queue = this.queue.slice(this.readIndex);
+                this.readIndex = 0;
+              }
+              return v;
+            }
+
             process(inputs, outputs) {
               const output = outputs[0];
-              for (let ch = 0; ch < output.length; ch++) {
-                const data = output[ch];
-                for (let i = 0; i < data.length; i++) {
-                  data[i] = this.queue.length ? this.queue.shift() : 0;
+              const frameCount = output[0].length;
+
+              if (this.buffering) {
+                if (this.available() >= this.minBufferSamples) {
+                  this.buffering = false;
+                } else {
+                  for (let ch = 0; ch < output.length; ch++) output[ch].fill(0);
+                  return true;
+                }
+              }
+
+              // Se o estoque acabar de vez (atraso maior chegando), volta a "encher o
+              // balde" antes de continuar, em vez de tocar com falhas no meio.
+              if (this.available() < 2) {
+                this.buffering = true;
+                for (let ch = 0; ch < output.length; ch++) output[ch].fill(0);
+                return true;
+              }
+
+              // Consome a fila em PARES (esquerda, direita) — cada "instante" de som,
+              // não uma amostra de cada vez por canal separado (isso embaralhava os
+              // canais e causava a distorção).
+              for (let i = 0; i < frameCount; i++) {
+                if (this.available() >= 2) {
+                  const left = this.readSample();
+                  const right = this.readSample();
+                  output[0][i] = left;
+                  if (output.length > 1) output[1][i] = right;
+                } else {
+                  output[0][i] = 0;
+                  if (output.length > 1) output[1][i] = 0;
                 }
               }
               return true;
