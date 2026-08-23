@@ -2553,39 +2553,44 @@
           class PCMWorkletProcessor extends AudioWorkletProcessor {
             constructor() {
               super();
-              // A fila guarda amostras intercaladas (esquerda, direita, esquerda,
-              // direita...) — exatamente como chegam do áudio original em estéreo.
-              // Em vez de remover um item por vez (.shift(), que fica mais lento
-              // conforme a fila cresce), usamos um "ponteiro de leitura" e só
-              // compactamos a fila de vez em quando — bem mais rápido.
-              this.queue = [];
-              this.readIndex = 0;
-              // Espera ter uma "folga" de ~100ms guardada antes de começar a tocar —
-              // isso evita estalos/falhas quando os pedaços de áudio não chegam num
-              // ritmo perfeitamente parelho (o normal em qualquer transmissão real).
-              // x2 porque cada "instante" de som ocupa 2 posições na fila (esq + dir).
+              // Buffer circular de TAMANHO FIXO (em vez de array dinâmico com
+              // push/slice). Isso é essencial: a thread de áudio em tempo real
+              // (essa classe) roda com um orçamento de tempo muito apertado a
+              // cada bloco de 128 amostras — qualquer alocação/cópia de array
+              // (como o antigo `.slice()`) dentro do process() podia estourar
+              // esse orçamento e causar os estalos/robótico que você ouviu.
+              // Com ponteiros de leitura/escrita andando em círculo, tudo aqui
+              // vira operação O(1), sem nenhuma cópia.
               this.minBufferSamples = 4410 * 2 * 3; // ~300ms a 44100Hz, estéreo
-              // Teto máximo do estoque — se passar disso, é sinal de que o atraso está
-              // crescendo (chegando mais rápido do que tocamos). Em vez de deixar
-              // acumular pra sempre, descarta o mais antigo e volta pro tamanho ideal.
-              this.maxBufferSamples = this.minBufferSamples * 5; // ~500ms
+              this.capacity = this.minBufferSamples * 5; // ~500ms de teto
+              this.ringBuffer = new Float32Array(this.capacity);
+              this.writeIndex = 0;
+              this.readIndex = 0;
+              this.available = 0;
               this.buffering = true;
+              this.lastLeft = 0;
+              this.lastRight = 0;
               this.port.onmessage = (e) => {
-                for (let i = 0; i < e.data.length; i++) this.queue.push(e.data[i]);
-                if (this.available() > this.maxBufferSamples) {
-                  this.readIndex += this.available() - this.minBufferSamples;
+                const data = e.data;
+                for (let i = 0; i < data.length; i++) {
+                  this.ringBuffer[this.writeIndex] = data[i];
+                  this.writeIndex = (this.writeIndex + 1) % this.capacity;
+                  if (this.available < this.capacity) {
+                    this.available++;
+                  } else {
+                    // Buffer cheio (atraso crescendo, chegando mais rápido do
+                    // que tocamos) — descarta a amostra mais antiga andando o
+                    // ponteiro de leitura junto, sem copiar nada.
+                    this.readIndex = (this.readIndex + 1) % this.capacity;
+                  }
                 }
               };
             }
 
-            available() { return this.queue.length - this.readIndex; }
-
             readSample() {
-              const v = this.queue[this.readIndex++];
-              if (this.readIndex > 48000) {
-                this.queue = this.queue.slice(this.readIndex);
-                this.readIndex = 0;
-              }
+              const v = this.ringBuffer[this.readIndex];
+              this.readIndex = (this.readIndex + 1) % this.capacity;
+              this.available--;
               return v;
             }
 
@@ -2594,7 +2599,7 @@
               const frameCount = output[0].length;
 
               if (this.buffering) {
-                if (this.available() >= this.minBufferSamples) {
+                if (this.available >= this.minBufferSamples) {
                   this.buffering = false;
                 } else {
                   for (let ch = 0; ch < output.length; ch++) output[ch].fill(0);
@@ -2607,7 +2612,7 @@
               // verdade"). Quando faltar áudio, em vez de cortar seco pro silêncio
               // (que soa como um estalo), vai suavizando até zero aos poucos.
               for (let i = 0; i < frameCount; i++) {
-                if (this.available() >= 2) {
+                if (this.available >= 2) {
                   this.lastLeft = this.readSample();
                   this.lastRight = this.readSample();
                   output[0][i] = this.lastLeft;
