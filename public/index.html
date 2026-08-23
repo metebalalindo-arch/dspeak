@@ -2529,8 +2529,10 @@
 
     class PCMToMediaStreamBridge {
       constructor(sampleRate) {
-        // 48000Hz é a taxa que o dspeak-audio.exe usa de verdade — precisa bater
-        // certinho, senão o áudio sai rápido/lento demais.
+        // A taxa vem da detecção real feita pelo dspeak-audio.exe (GetMixFormat no
+        // dispositivo de áudio padrão) — precisa bater certinho, senão o áudio sai
+        // rápido/lento demais. 48000 aqui é só um último recurso de segurança, pro
+        // caso raro da taxa real não ter chegado por algum motivo.
         this.ctx = new AudioContext({ sampleRate: sampleRate || 48000 });
         this.dest = this.ctx.createMediaStreamDestination();
         this.node = null;
@@ -2561,7 +2563,11 @@
               // esse orçamento e causar os estalos/robótico que você ouviu.
               // Com ponteiros de leitura/escrita andando em círculo, tudo aqui
               // vira operação O(1), sem nenhuma cópia.
-              this.minBufferSamples = 4800 * 2 * 3; // ~300ms a 48000Hz, estéreo
+              // "sampleRate" aqui é uma variável GLOBAL que o próprio Web Audio API
+              // já disponibiliza dentro do worklet, sempre com o valor real do
+              // AudioContext — não precisamos mais chutar 44100/48000 fixo em lugar
+              // nenhum, isso já se ajusta sozinho a qualquer taxa.
+              this.minBufferSamples = Math.round(sampleRate * 0.1) * 2 * 3; // ~300ms, estéreo
               this.capacity = this.minBufferSamples * 5; // ~500ms de teto
               this.ringBuffer = new Float32Array(this.capacity);
               this.writeIndex = 0;
@@ -2636,9 +2642,10 @@
                 }
               }
 
-              // Reporta a cada ~1 segundo (48000 frames) quanto do áudio foi
-              // preenchido com silêncio por falta de dado — número real, não achismo.
-              if (this._framesTotal - this._lastStatsLogFrame >= 48000) {
+              // Reporta a cada ~1 segundo (um "sampleRate" de frames, seja qual for a
+              // taxa real) quanto do áudio foi preenchido com silêncio por falta de
+              // dado — número real, não achismo.
+              if (this._framesTotal - this._lastStatsLogFrame >= sampleRate) {
                 const pct = ((this._framesUnderrun / this._framesTotal) * 100).toFixed(1);
                 this.port.postMessage({ type: 'stats', underrunPct: pct, totalFrames: this._framesTotal, underrunFrames: this._framesUnderrun });
                 this._lastStatsLogFrame = this._framesTotal;
@@ -2721,9 +2728,21 @@
         window.electronAudioAPI.onUseProcessAudio(async (processId) => {
           console.log(`[ProcessAudio] Aviso recebido pra usar áudio do processo ${processId}`);
           try {
-            activePcmBridge = new PCMToMediaStreamBridge();
+            // Ainda não criamos o AudioContext aqui — precisamos saber a taxa de
+            // amostragem NATIVA real (que só vem depois, junto da resposta de
+            // startProcessAudioCapture) antes de criar o contexto com a taxa certa.
+            // Chutar uma taxa fixa de antemão foi a causa do chiado que apareceu
+            // quando o dispositivo de áudio padrão do Windows mudava entre sessões.
+            // Se algum pedaço de áudio chegar antes da taxa ser conhecida (é rápido,
+            // mas pode acontecer), guardamos aqui pra processar na ordem certa assim
+            // que o contexto for criado — não perdemos nem uma amostra.
+            let pendingChunksBeforeBridgeReady = [];
             currentChunkHandler = (chunk) => {
-              if (activePcmBridge) activePcmBridge.pushChunk(chunk);
+              if (activePcmBridge) {
+                activePcmBridge.pushChunk(chunk);
+              } else {
+                pendingChunksBeforeBridgeReady.push(chunk);
+              }
             };
             window.electronAudioAPI.onProcessAudioChunk(currentChunkHandler);
 
@@ -2734,6 +2753,18 @@
               finish(null);
               return;
             }
+
+            if (result.sampleRate) {
+              console.log(`[ProcessAudio] Taxa de amostragem nativa recebida: ${result.sampleRate}Hz.`);
+            } else {
+              console.warn('[ProcessAudio] Taxa de amostragem nativa não veio na resposta — usando taxa padrão de segurança.');
+            }
+            activePcmBridge = new PCMToMediaStreamBridge(result.sampleRate);
+            // Despeja, na ordem certa, qualquer pedaço que tenha chegado enquanto
+            // esperávamos a taxa ficar pronta.
+            const buffered = pendingChunksBeforeBridgeReady;
+            pendingChunksBeforeBridgeReady = [];
+            buffered.forEach((chunk) => activePcmBridge.pushChunk(chunk));
 
             const track = activePcmBridge.getTrack();
             finish(track); // não faz nada se a promessa já tinha resolvido (por timeout ou por essa mesma chamada)
