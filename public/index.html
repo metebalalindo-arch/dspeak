@@ -2879,6 +2879,13 @@
             buffered.forEach((chunk) => activePcmBridge.pushChunk(chunk));
 
             const track = activePcmBridge.getTrack();
+            // Avisa o WebRTC que essa faixa é MÚSICA/áudio de programa, não voz de
+            // microfone. Sem isso, o navegador assume por padrão que é voz e aplica
+            // processamento pensado pra chamada (supressão de ruído, cancelamento de
+            // eco, ganho automático) — que trata trechos de música como "ruído" e
+            // suprime, além de deixar até a voz com aquele efeito "processado"
+            // (foi a causa do chiado + música sumindo + voz meio robotizada).
+            if (track) track.contentHint = 'music';
             finish(track); // não faz nada se a promessa já tinha resolvido (por timeout ou por essa mesma chamada)
             ensureProcessAudioTrackAttached();
           } catch (err) {
@@ -2920,6 +2927,10 @@
           selfBrowserSurface: 'exclude',
           surfaceSwitching: 'include'
         });
+
+        // Mesma razão do processAudioTrack: avisa o WebRTC que é música/áudio de
+        // programa, não voz — afeta o modo/taxa do codec Opus escolhido.
+        localStream.getAudioTracks().forEach(t => { t.contentHint = 'music'; });
 
         const processAudioTrack = await processAudioTrackPromise;
 
@@ -2967,6 +2978,7 @@
             });
             const deviceTrack = deviceStream.getAudioTracks()[0];
             if (deviceTrack) {
+              deviceTrack.contentHint = 'music'; // afeta o modo/taxa do codec Opus, à parte dos constraints de AEC/NS/AGC acima
               localStream.addTrack(deviceTrack);
               const watchingPeerIds2 = Object.keys(peerConnections);
               if (watchingPeerIds2.length > 0) {
@@ -3046,6 +3058,56 @@
       } catch (e) { /* alguns navegadores recusam setParameters antes da 1ª negociação — sem problema, tenta de novo depois */ }
     }
 
+    // Por padrão, o Opus (codec de áudio do WebRTC) usa configurações pensadas pra
+    // CHAMADA DE VOZ — bitrate baixo, e às vezes corta trechos de silêncio (DTX). Isso
+    // é ótimo pra economizar dados numa ligação, mas é péssimo pra áudio de
+    // sistema/processo (filme, música, jogo): o resultado é justamente o combo que a
+    // gente via — chiado (ruído de quantização por causa do bitrate baixo), trechos de
+    // música sumindo (o codec "decide" que aquilo não parece voz e corta/comprime
+    // agressivo) e voz saindo robótica (artefato clássico de compressão excessiva).
+    // Aqui a gente reescreve a linha do Opus no SDP pra pedir explicitamente um "modo
+    // música": bitrate bem mais alto, estéreo de verdade, correção de erro embutida
+    // (ajuda contra picotado de rede) e desliga o corte de silêncio.
+    function preferOpusMusicModeInSdp(sdp) {
+      try {
+        const lines = sdp.split('\r\n');
+        // Acha o "payload type" numérico que o navegador atribuiu ao Opus nessa sessão
+        // (varia — não é sempre o mesmo número).
+        const opusRtpmapLine = lines.find(l => /^a=rtpmap:\d+ opus\/48000/i.test(l));
+        if (!opusRtpmapLine) return sdp; // essa conexão não tem Opus (ou não tem áudio) — não mexe em nada
+        const payloadType = opusRtpmapLine.match(/^a=rtpmap:(\d+) /)[1];
+
+        const desiredParams = 'minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=256000;usedtx=0';
+        const fmtpIndex = lines.findIndex(l => l.startsWith(`a=fmtp:${payloadType} `));
+        if (fmtpIndex !== -1) {
+          // Já existe uma linha fmtp pra esse payload — funde os parâmetros novos com
+          // o que já estava lá (em vez de simplesmente substituir tudo), preservando
+          // qualquer coisa que o navegador já tivesse configurado por conta própria.
+          const existing = lines[fmtpIndex].slice(`a=fmtp:${payloadType} `.length);
+          const merged = new Map();
+          for (const pair of existing.split(';')) {
+            const [k, v] = pair.split('=');
+            if (k) merged.set(k.trim(), v);
+          }
+          for (const pair of desiredParams.split(';')) {
+            const [k, v] = pair.split('=');
+            merged.set(k.trim(), v);
+          }
+          const mergedStr = Array.from(merged.entries()).map(([k, v]) => (v !== undefined ? `${k}=${v}` : k)).join(';');
+          lines[fmtpIndex] = `a=fmtp:${payloadType} ${mergedStr}`;
+        } else {
+          // Não tinha linha fmtp nenhuma pra esse payload ainda — insere logo depois
+          // do rtpmap correspondente.
+          const rtpmapIndex = lines.indexOf(opusRtpmapLine);
+          lines.splice(rtpmapIndex + 1, 0, `a=fmtp:${payloadType} ${desiredParams}`);
+        }
+        return lines.join('\r\n');
+      } catch (err) {
+        console.warn('[WebRTC] Não consegui ajustar o SDP do Opus pra modo música — seguindo com o padrão do navegador.', err);
+        return sdp; // qualquer erro aqui, melhor seguir com o SDP original do que quebrar a chamada inteira
+      }
+    }
+
     // Se já estivermos transmitindo e o usuário mudar a "Qualidade de Imagem" nas
     // configurações, reaplica o novo bitrate na hora, sem precisar reiniciar a transmissão.
     function applyStreamQualityToActiveShare() {
@@ -3070,6 +3132,7 @@
       if (!activePcmBridge || !localStream) return false;
       const track = activePcmBridge.getTrack();
       if (!track) return false;
+      track.contentHint = 'music'; // mesma razão do outro ponto onde isso é setado — evita processamento de voz (supressão de ruído/AGC) numa faixa que é música/áudio de programa
       if (localStream.getAudioTracks().includes(track)) return true; // já estava
       console.log('[ProcessAudio] Garantindo que a faixa de áudio está no localStream e avisando quem já está assistindo.');
       localStream.addTrack(track);
@@ -3152,6 +3215,14 @@
         try {
           pc.makingOffer = true;
           await pc.setLocalDescription();
+          // Reescreve o SDP recém-criado pra pedir modo música no Opus (ver
+          // preferOpusMusicModeInSdp) — precisa chamar setLocalDescription() de novo
+          // com a versão ajustada, já que não dá pra editar pc.localDescription
+          // diretamente.
+          const mungedSdp = preferOpusMusicModeInSdp(pc.localDescription.sdp);
+          if (mungedSdp !== pc.localDescription.sdp) {
+            await pc.setLocalDescription({ type: pc.localDescription.type, sdp: mungedSdp });
+          }
           console.log(`[WebRTC] mandando offer pra ${targetSocketId}`);
           socket.emit('webrtc-offer', { targetSocketId, offer: pc.localDescription });
         } catch (err) {
@@ -3240,7 +3311,8 @@
         addMicTrackToPeer(pc, data.senderSocketId);
 
         const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        const mungedAnswerSdp = preferOpusMusicModeInSdp(answer.sdp);
+        await pc.setLocalDescription({ type: answer.type, sdp: mungedAnswerSdp });
         console.log(`[WebRTC] mandando answer pra ${data.senderSocketId}`);
         socket.emit('webrtc-answer', { targetSocketId: data.senderSocketId, answer: pc.localDescription });
       } catch (err) {
