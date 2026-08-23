@@ -2651,14 +2651,28 @@
               finish(null);
               return;
             }
-            finish(activePcmBridge.getTrack());
+
+            const track = activePcmBridge.getTrack();
+            if (!settled) {
+              finish(track);
+            } else if (track && localStream && !localStream.getAudioTracks().includes(track)) {
+              // A espera já tinha esgotado antes desse aviso chegar (ex: o programinha
+              // em C++ demorou um pouco mais pra ligar) — mesmo assim, conecta a faixa
+              // agora à chamada em vez de simplesmente descartar. A conexão WebRTC se
+              // renegocia sozinha pra incluir o áudio novo automaticamente.
+              console.log('[ProcessAudio] Faixa chegou depois da espera — conectando à chamada mesmo assim.');
+              localStream.addTrack(track);
+              showToast('Áudio do programa conectado (demorou um pouco, mas já está funcionando).');
+            }
           } catch (err) {
             console.error('[ProcessAudio] Erro:', err);
             finish(null);
           }
         });
 
-        setTimeout(() => finish(null), 1200);
+        // Dá bastante tempo (o programinha em C++ separado precisa ligar e começar a
+        // capturar de verdade — isso pode demorar mais que um segundo às vezes).
+        setTimeout(() => finish(null), 6000);
       });
     }
 
