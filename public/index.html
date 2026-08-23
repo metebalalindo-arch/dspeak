@@ -2528,7 +2528,7 @@
     let currentErrorHandler = null;
 
     class PCMToMediaStreamBridge {
-      constructor(sampleRate) {
+      constructor(sampleRate, channels) {
         // A taxa vem da detecção real feita pelo dspeak-audio.exe (GetMixFormat no
         // dispositivo de áudio padrão) — precisa bater certinho, senão o áudio sai
         // rápido/lento demais. 48000 aqui é só um último recurso de segurança, pro
@@ -2536,6 +2536,19 @@
         this.ctx = new AudioContext({ sampleRate: sampleRate || 48000 });
         this.dest = this.ctx.createMediaStreamDestination();
         this.node = null;
+        // Número de canais que o .cpp está realmente enviando (pode ser mais que 2 em
+        // sistemas configurados pra som surround/espacial — Dolby Atmos, Windows
+        // Sonic, 5.1/7.1). O worklet sempre trabalha internamente em estéreo, então se
+        // vier mais canais, misturamos (downmix) pra estéreo no pushChunk, de um jeito
+        // que a gente controla — em vez de deixar o Windows converter escondido (que
+        // era a causa do chiado em alguns programas específicos).
+        this.channels = channels && channels > 0 ? channels : 2;
+        // Sobra de bytes que não formaram um "quadro" completo (todos os canais de um
+        // mesmo instante) no último pushChunk — importante quando channels > 1: sem
+        // isso, um corte no meio de um quadro faz os canais saírem embaralhados a
+        // partir dali (o mesmo tipo de problema que já resolvemos pro alinhamento de
+        // bytes no audio-helper.js, só que agora um nível acima, por quadro completo).
+        this._leftoverFrameBytes = new Uint8Array(0);
         this.ready = this._setup();
       }
 
@@ -2671,21 +2684,94 @@
         }
       }
 
-      // Espera receber PCM 32-bit float, little-endian, 48kHz, estéreo (o formato
-      // que o dspeak-audio.exe escreve). Se o áudio sair errado na prática (velocidade,
-      // distorção), é bem provável que precise ajustar esses parâmetros junto do .cpp.
+      // Espera receber PCM 32-bit float, little-endian, na taxa e no número de canais
+      // informados pelo dspeak-audio.exe (this.channels). Se vier mais de 2 canais
+      // (sistemas com som surround/espacial configurado), a gente mesmo mistura
+      // (downmix) pra estéreo aqui — em vez de deixar o Windows fazer essa conversão
+      // escondido, que foi a causa do chiado em alguns programas específicos.
       async pushChunk(uint8Array) {
         try {
           await this.ready;
           if (!this.node) { console.warn('[ProcessAudio] pushChunk chamado mas o node do worklet ainda não existe.'); return; }
-          const view = new DataView(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
-          // 4 bytes por amostra agora (32-bit float), não mais 2 (16-bit inteiro).
-          const sampleCount = Math.floor(uint8Array.byteLength / 4);
-          const floatSamples = new Float32Array(sampleCount);
-          for (let i = 0; i < sampleCount; i++) {
-            floatSamples[i] = view.getFloat32(i * 4, true); // já vem "pronto", sem precisar dividir por nada
+          const channels = this.channels;
+          const frameBytes = channels * 4; // 4 bytes por amostra (32-bit float) vezes o número de canais
+
+          // Gruda a sobra do pedaço anterior na frente deste, pra nunca cortar um
+          // quadro (todos os canais de um mesmo instante) ao meio.
+          let combined;
+          if (this._leftoverFrameBytes.length > 0) {
+            combined = new Uint8Array(this._leftoverFrameBytes.length + uint8Array.byteLength);
+            combined.set(this._leftoverFrameBytes, 0);
+            combined.set(new Uint8Array(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength), this._leftoverFrameBytes.length);
+          } else {
+            combined = new Uint8Array(uint8Array.buffer, uint8Array.byteOffset, uint8Array.byteLength);
           }
-          this.node.port.postMessage(floatSamples, [floatSamples.buffer]);
+          const usableBytes = combined.length - (combined.length % frameBytes);
+          this._leftoverFrameBytes = combined.slice(usableBytes);
+          if (usableBytes === 0) return; // só sobrou um pedacinho incompleto, guardado pro próximo
+
+          const view = new DataView(combined.buffer, combined.byteOffset, usableBytes);
+          const frameCount = usableBytes / frameBytes;
+          const stereoSamples = new Float32Array(frameCount * 2);
+
+          if (channels === 2) {
+            // Caminho rápido: já vem em estéreo, não precisa misturar nada.
+            const n = frameCount * 2;
+            for (let i = 0; i < n; i++) {
+              stereoSamples[i] = view.getFloat32(i * 4, true);
+            }
+          } else if (channels === 1) {
+            for (let f = 0; f < frameCount; f++) {
+              const v = view.getFloat32(f * 4, true);
+              stereoSamples[f * 2] = v;
+              stereoSamples[f * 2 + 1] = v;
+            }
+          } else {
+            // Downmix pra estéreo. Layouts comuns (4/5.1/7.1) usam os pesos padrão da
+            // indústria (parecido com o que TVs/receivers fazem). Pra qualquer outro
+            // número de canais incomum, faz uma mistura simples e segura: os dois
+            // primeiros canais viram a base de L/R, e o resto entra com peso reduzido,
+            // só pra não perder nenhum som, sem forçar demais o volume.
+            for (let f = 0; f < frameCount; f++) {
+              const base = f * channels;
+              const FL = view.getFloat32((base + 0) * 4, true);
+              const FR = view.getFloat32((base + 1) * 4, true);
+              let L, R;
+              if (channels === 4) {
+                const BL = view.getFloat32((base + 2) * 4, true);
+                const BR = view.getFloat32((base + 3) * 4, true);
+                L = FL + 0.5 * BL;
+                R = FR + 0.5 * BR;
+              } else if (channels === 6) {
+                const FC = view.getFloat32((base + 2) * 4, true);
+                // (base+3) é o canal de grave (LFE) — ignorado de propósito, não faz
+                // falta pra estéreo normal.
+                const BL = view.getFloat32((base + 4) * 4, true);
+                const BR = view.getFloat32((base + 5) * 4, true);
+                L = FL + 0.7071 * FC + 0.5 * BL;
+                R = FR + 0.7071 * FC + 0.5 * BR;
+              } else if (channels === 8) {
+                const FC = view.getFloat32((base + 2) * 4, true);
+                const BL = view.getFloat32((base + 4) * 4, true);
+                const BR = view.getFloat32((base + 5) * 4, true);
+                const SL = view.getFloat32((base + 6) * 4, true);
+                const SR = view.getFloat32((base + 7) * 4, true);
+                L = FL + 0.7071 * FC + 0.5 * BL + 0.5 * SL;
+                R = FR + 0.7071 * FC + 0.5 * BR + 0.5 * SR;
+              } else {
+                L = FL;
+                R = FR;
+                for (let c = 2; c < channels; c++) {
+                  const v = view.getFloat32((base + c) * 4, true) * 0.3;
+                  if (c % 2 === 0) L += v; else R += v;
+                }
+              }
+              stereoSamples[f * 2] = L;
+              stereoSamples[f * 2 + 1] = R;
+            }
+          }
+
+          this.node.port.postMessage(stereoSamples, [stereoSamples.buffer]);
 
           this._pushCount = (this._pushCount || 0) + 1;
           if (this._pushCount === 1 || this._pushCount % 100 === 0) {
@@ -2759,7 +2845,10 @@
             } else {
               console.warn('[ProcessAudio] Taxa de amostragem nativa não veio na resposta — usando taxa padrão de segurança.');
             }
-            activePcmBridge = new PCMToMediaStreamBridge(result.sampleRate);
+            if (result.channels) {
+              console.log(`[ProcessAudio] Número de canais nativo recebido: ${result.channels}.`);
+            }
+            activePcmBridge = new PCMToMediaStreamBridge(result.sampleRate, result.channels);
             // Despeja, na ordem certa, qualquer pedaço que tenha chegado enquanto
             // esperávamos a taxa ficar pronta.
             const buffered = pendingChunksBeforeBridgeReady;
