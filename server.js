@@ -2557,6 +2557,19 @@
     // quando rodando dentro do app desktop, com o helper de áudio (dspeak-audio.exe)
     // compilado e funcionando.
     let activePcmBridge = null;
+    // ---- DIAGNÓSTICO TEMPORÁRIO: monitor local ----
+    // Definida uma vez só, aqui (não dentro da bridge) — pra existir desde já, sem
+    // depender de terminar nenhum setup assíncrono antes. Ela sempre olha pra
+    // bridge ATUAL (activePcmBridge) no momento em que for chamada, então funciona
+    // não importa quando você digitar, mesmo logo depois de trocar de janela.
+    window.dspeakMonitor = (ligado) => {
+      if (!activePcmBridge || !activePcmBridge._monitorGain) {
+        console.log('[ProcessAudio] Ainda não tem áudio de processo ativo pra monitorar (ou o AudioContext ainda está preparando — espera 1-2 segundos e tenta de novo).');
+        return;
+      }
+      activePcmBridge._monitorGain.gain.value = ligado ? 1 : 0;
+      console.log(`[ProcessAudio] Monitor local ${ligado ? 'LIGADO — você deve ouvir o áudio capturado agora, direto, sem passar pelo WebRTC' : 'desligado'}.`);
+    };
     let currentChunkHandler = null; // guardado pra dar pra remover certinho depois
     let currentErrorHandler = null;
 
@@ -2729,16 +2742,13 @@
           // especificamente no envio (WebRTC/codec/rede).
           // Pra ligar: abre o Console (F12) e digita  window.dspeakMonitor(true)
           // Pra desligar de novo:                      window.dspeakMonitor(false)
+          // (a função window.dspeakMonitor em si é definida uma vez só, fora dessa
+          // classe — ver perto de "let activePcmBridge" — pra já existir desde o
+          // início da página, sem depender desse setup assíncrono ter terminado.)
           this._monitorGain = this.ctx.createGain();
           this._monitorGain.gain.value = 0; // mudo por padrão — só liga se você pedir
           this.node.connect(this._monitorGain);
           this._monitorGain.connect(this.ctx.destination);
-          window.dspeakMonitor = (ligado) => {
-            if (this._monitorGain) {
-              this._monitorGain.gain.value = ligado ? 1 : 0;
-              console.log(`[ProcessAudio] Monitor local ${ligado ? 'LIGADO — você deve ouvir o áudio capturado agora, direto, sem passar pelo WebRTC' : 'desligado'}.`);
-            }
-          };
         } finally {
           URL.revokeObjectURL(url);
         }
