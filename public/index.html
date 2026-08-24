@@ -2557,6 +2557,35 @@
     // quando rodando dentro do app desktop, com o helper de áudio (dspeak-audio.exe)
     // compilado e funcionando.
     let activePcmBridge = null;
+    // Bridge da captura ANTERIOR, só durante o crossfade (ver mais abaixo) — sumindo
+    // suavemente de volume enquanto a nova (activePcmBridge) sobe. Fora de uma troca,
+    // é null.
+    let drainingPcmBridge = null;
+    // Tempo do crossfade do lado do navegador — um pouco menor que o CROSSFADE_MS do
+    // audio-helper.js (que mantém o processo antigo vivo por mais tempo), pra garantir
+    // que o fade já tenha terminado de vez antes do processo antigo ser desligado.
+    const JS_CROSSFADE_MS = 400;
+
+    // ---- Mixer persistente ----
+    // Criado UMA vez só, na primeira vez que qualquer áudio de processo é usado — e
+    // NUNCA recriado depois disso, nem trocando de janela várias vezes. É dele que
+    // sai a faixa de áudio que vai pro WebRTC. Como essa faixa nunca muda de
+    // identidade entre trocas (só o que está "por baixo" dela muda, via os Gains de
+    // cada bridge), a gente nem precisa mais de replaceTrack pra áudio de processo:
+    // anexa uma vez, e pronto — só o mix por baixo muda a cada troca de janela.
+    let processAudioMixerCtx = null;
+    let processAudioMixerDest = null;
+    function ensureProcessAudioMixer() {
+      if (!processAudioMixerCtx) {
+        processAudioMixerCtx = new AudioContext();
+        processAudioMixerDest = processAudioMixerCtx.createMediaStreamDestination();
+      }
+      return { ctx: processAudioMixerCtx, dest: processAudioMixerDest };
+    }
+    function getProcessAudioMixerTrack() {
+      return processAudioMixerDest ? processAudioMixerDest.stream.getAudioTracks()[0] : null;
+    }
+
     // ---- DIAGNÓSTICO TEMPORÁRIO: monitor local ----
     // Definida uma vez só, aqui (não dentro da bridge) — pra existir desde já, sem
     // depender de terminar nenhum setup assíncrono antes. Ela sempre olha pra
@@ -2749,9 +2778,46 @@
           this._monitorGain.gain.value = 0; // mudo por padrão — só liga se você pedir
           this.node.connect(this._monitorGain);
           this._monitorGain.connect(this.ctx.destination);
+
+          // ---- Conecta no mixer PERSISTENTE (crossfade) ----
+          // AudioContexts diferentes não deixam conectar nó com nó direto — por isso
+          // atravessamos a fronteira via MediaStream (this.dest.stream), que qualquer
+          // contexto pode "importar" com createMediaStreamSource. this.mixerGain é o
+          // volume DESSA captura específica dentro do mix final — começa mudo; quem
+          // troca de janela decide quando subir (fadeIn) e quando descer (fadeOut).
+          const mixer = ensureProcessAudioMixer();
+          this.mixerSource = mixer.ctx.createMediaStreamSource(this.dest.stream);
+          this.mixerGain = mixer.ctx.createGain();
+          this.mixerGain.gain.value = 0;
+          this.mixerSource.connect(this.mixerGain);
+          this.mixerGain.connect(mixer.dest);
         } finally {
           URL.revokeObjectURL(url);
         }
+      }
+
+      // Sobe suavemente o volume dessa captura dentro do mix, ao longo de `ms`
+      // milissegundos — usado quando essa é a captura NOVA entrando numa troca.
+      fadeIn(ms) {
+        if (!this.mixerGain || !processAudioMixerCtx) return;
+        const now = processAudioMixerCtx.currentTime;
+        this.mixerGain.gain.cancelScheduledValues(now);
+        this.mixerGain.gain.setValueAtTime(this.mixerGain.gain.value, now);
+        this.mixerGain.gain.linearRampToValueAtTime(1, now + ms / 1000);
+      }
+
+      // Desce suavemente o volume dessa captura dentro do mix, ao longo de `ms`
+      // milissegundos, e SÓ DEPOIS fecha o AudioContext dela de vez (stop()) — usado
+      // quando essa é a captura ANTIGA saindo numa troca. Nunca corta o volume seco:
+      // é exatamente esse corte seco (fechar o AudioContext na hora, na troca
+      // anterior) que causava o buraco no áudio que identificamos antes.
+      fadeOutAndStop(ms) {
+        if (!this.mixerGain || !processAudioMixerCtx) { this.stop(); return; }
+        const now = processAudioMixerCtx.currentTime;
+        this.mixerGain.gain.cancelScheduledValues(now);
+        this.mixerGain.gain.setValueAtTime(this.mixerGain.gain.value, now);
+        this.mixerGain.gain.linearRampToValueAtTime(0, now + ms / 1000);
+        setTimeout(() => this.stop(), ms + 50);
       }
 
       // Espera receber PCM no formato informado pelo dspeak-audio.exe (this.sampleFormat
@@ -2862,9 +2928,19 @@
         }
       }
 
+      // Faixa PRÓPRIA dessa captura (não é mais a que vai pro WebRTC — ver
+      // getProcessAudioMixerTrack() pra essa) — usada só de referência/diagnóstico
+      // (ex: no log de pushChunk logo abaixo, e como fonte pro monitor local).
       getTrack() { return this.dest.stream.getAudioTracks()[0]; }
       stop() {
-        try { if (this.node) this.node.disconnect(); this.ctx.close(); } catch (e) {}
+        // Desconecta desse lado (contexto próprio) e também do lado do mixer
+        // persistente — sem isso, os nós dessa captura ficariam "pendurados" no
+        // grafo do mixer pra sempre, mesmo já mudos, acumulando um pouquinho a cada
+        // troca de janela ao longo de uma sessão longa.
+        try { if (this.node) this.node.disconnect(); } catch (e) {}
+        try { if (this.mixerSource) this.mixerSource.disconnect(); } catch (e) {}
+        try { if (this.mixerGain) this.mixerGain.disconnect(); } catch (e) {}
+        try { this.ctx.close(); } catch (e) {}
       }
     }
 
@@ -2899,46 +2975,43 @@
           console.log(`[ProcessAudio] Aviso recebido pra usar áudio do processo ${processId}`);
           try {
             // Se já existia uma captura de áudio de processo rolando (ex: a pessoa
-            // trocou de janela SEM parar a transmissão inteira), guarda a referência
-            // dela aqui — mas NÃO para ela ainda. Isso é o ponto mais importante dessa
-            // função: se a gente fechar o AudioContext antigo (bridge.stop()) ANTES da
-            // faixa nova já ter tomado o lugar dela no sender (via replaceTrack), o
-            // sender fica, por um instante, preso a uma faixa MORTA (fechar o
-            // AudioContext termina a faixa) — um buraco real no áudio que está sendo
-            // mandado pra rede, mesmo sem nenhuma renegociação envolvida. Foi esse
-            // buraco (não a renegociação em si, que já tínhamos eliminado com
-            // replaceTrack) que causava o soluço de concentração de falhas no buffer
-            // de quem assiste a cada troca de janela. A correção: só parar a bridge
-            // antiga DEPOIS que a nova já estiver anexada de verdade (replaceTrack já
-            // executado) — o sender nunca fica sem uma faixa viva, nem por um instante.
-            const previousBridge = activePcmBridge;
-            const previousTrack = previousBridge ? previousBridge.getTrack() : null;
-            // Tira a faixa antiga do localStream JÁ — isso é só bookkeeping (a lista de
-            // faixas "atuais" do lado do JS), não afeta o sender de verdade: cada
-            // sender guarda sua PRÓPRIA referência à faixa que está enviando,
-            // independente do localStream. O que precisa esperar é só o
-            // previousBridge.stop() (fecha o AudioContext, que é o que TERMINA a faixa
-            // de verdade) — isso sim só pode acontecer depois do replaceTrack, senão o
-            // sender fica preso a uma faixa morta por um instante (ver abaixo).
-            if (previousTrack && localStream && localStream.getTracks().includes(previousTrack)) {
-              localStream.removeTrack(previousTrack);
+            // trocou de janela SEM parar a transmissão inteira), ela vira a bridge
+            // "saindo" (drainingPcmBridge) — continua tocando normalmente (dentro do
+            // mix) até o crossfade terminar, em vez de ser cortada na hora. Isso é a
+            // mudança principal dessa versão: descobrimos (com um monitor local,
+            // ouvindo o áudio já capturado, sem passar por WebRTC nenhum) que o
+            // chiado ao trocar de janela nasce na própria captura nativa bem no
+            // instante da ativação nova — não dava pra deixar isso perfeitamente
+            // limpo só com timing/ordem de código. Em vez disso, a troca agora SOA
+            // limpa: a captura nova entra suavemente por baixo (fadeIn) enquanto a
+            // antiga desce (fadeOut) — ver mais abaixo.
+            if (drainingPcmBridge) {
+              // Troca rápida demais, ainda no meio de um crossfade anterior — força
+              // essa a sumir já, só uma transição suave de cada vez.
+              drainingPcmBridge.stop();
             }
+            drainingPcmBridge = activePcmBridge;
+            activePcmBridge = null;
+            const drainingGeneration = drainingPcmBridge ? drainingPcmBridge.generation : null;
 
             // Ainda não criamos o AudioContext aqui — precisamos saber a taxa de
             // amostragem NATIVA real (que só vem depois, junto da resposta de
             // startProcessAudioCapture) antes de criar o contexto com a taxa certa.
-            // Chutar uma taxa fixa de antemão foi a causa do chiado que apareceu
-            // quando o dispositivo de áudio padrão do Windows mudava entre sessões.
-            // Se algum pedaço de áudio chegar antes da taxa ser conhecida (é rápido,
-            // mas pode acontecer), guardamos aqui pra processar na ordem certa assim
-            // que o contexto for criado — não perdemos nem uma amostra.
             let pendingChunksBeforeBridgeReady = [];
-            currentChunkHandler = (chunk) => {
-              if (activePcmBridge) {
+            let newGeneration = null;
+            currentChunkHandler = ({ chunk, generation }) => {
+              // Pode ter DOIS fluxos chegando ao mesmo tempo durante o crossfade (o
+              // que está saindo e o que está entrando) — roteia cada pedaço pra
+              // bridge certa, usando o número de geração que vem junto.
+              if (generation === newGeneration && activePcmBridge) {
                 activePcmBridge.pushChunk(chunk);
-              } else {
+              } else if (generation === drainingGeneration && drainingPcmBridge) {
+                drainingPcmBridge.pushChunk(chunk);
+              } else if (newGeneration === null) {
                 pendingChunksBeforeBridgeReady.push(chunk);
               }
+              // (pedaços de uma geração mais antiga que já foi desligada de vez são
+              // simplesmente descartados aqui — não há mais bridge pra recebê-los.)
             };
             window.electronAudioAPI.onProcessAudioChunk(currentChunkHandler);
 
@@ -2961,14 +3034,25 @@
             if (result.sampleFormat) {
               console.log(`[ProcessAudio] Formato de amostra nativo recebido: ${result.sampleFormat}.`);
             }
+            newGeneration = result.generation;
             activePcmBridge = new PCMToMediaStreamBridge(result.sampleRate, result.channels, result.sampleFormat);
+            activePcmBridge.generation = result.generation;
+            await activePcmBridge.ready; // espera o mixer estar conectado antes de despejar os pendentes e começar o fadeIn
+
             // Despeja, na ordem certa, qualquer pedaço que tenha chegado enquanto
-            // esperávamos a taxa ficar pronta.
+            // esperávamos a taxa/o mixer ficarem prontos.
             const buffered = pendingChunksBeforeBridgeReady;
             pendingChunksBeforeBridgeReady = [];
             buffered.forEach((chunk) => activePcmBridge.pushChunk(chunk));
 
-            const track = activePcmBridge.getTrack();
+            // A faixa que vai pro WebRTC agora é a do MIXER PERSISTENTE — a MESMA
+            // sempre, não muda de identidade entre trocas de janela (só o que está
+            // por baixo dela muda, via os Gains de cada bridge). Por isso
+            // ensureProcessAudioTrackAttached só precisa fazer alguma coisa de
+            // verdade na PRIMEIRA vez; nas trocas seguintes, a faixa já anexada
+            // continua sendo a certa sem precisar de replaceTrack nem renegociação
+            // nenhuma.
+            const track = getProcessAudioMixerTrack();
             // Avisa o WebRTC que essa faixa é MÚSICA/áudio de programa, não voz de
             // microfone. Sem isso, o navegador assume por padrão que é voz e aplica
             // processamento pensado pra chamada (supressão de ruído, cancelamento de
@@ -2977,14 +3061,17 @@
             // (foi a causa do chiado + música sumindo + voz meio robotizada).
             if (track) track.contentHint = 'music';
             finish(track); // não faz nada se a promessa já tinha resolvido (por timeout ou por essa mesma chamada)
-            ensureProcessAudioTrackAttached(); // troca a faixa nova pra dentro do(s) sender(s) já existente(s) via replaceTrack
+            ensureProcessAudioTrackAttached();
 
-            // SÓ AGORA a bridge antiga pode ser parada (fecha o AudioContext, que
-            // TERMINA a faixa antiga de verdade) — a nova já tomou o lugar dela em todo
-            // sender que existia (replaceTrack já rodou dentro de
-            // ensureProcessAudioTrackAttached, acima), então não sobra nenhum instante
-            // em que algum sender ficasse com uma faixa morta.
-            if (previousBridge) previousBridge.stop();
+            // Começa o crossfade de verdade: a nova sobe suavemente, a antiga desce
+            // suavemente, ao mesmo tempo — e só depois de terminar de descer é que a
+            // antiga é desligada de vez (dentro de fadeOutAndStop).
+            activePcmBridge.fadeIn(JS_CROSSFADE_MS);
+            if (drainingPcmBridge) {
+              const oldBridge = drainingPcmBridge;
+              oldBridge.fadeOutAndStop(JS_CROSSFADE_MS);
+              setTimeout(() => { if (drainingPcmBridge === oldBridge) drainingPcmBridge = null; }, JS_CROSSFADE_MS + 100);
+            }
           } catch (err) {
             console.error('[ProcessAudio] Erro:', err);
             finish(null);
@@ -3035,8 +3122,17 @@
         // isso, cada troca de janela deixava a captura de tela ANTERIOR rodando pra
         // sempre em segundo plano (nunca parada, só sobrescrita na variável), gastando
         // recursos à toa a cada troca.
+        // IMPORTANTE: nunca para a faixa do MIXER de áudio de processo aqui — essa
+        // faixa agora é ESTÁVEL (a mesma em toda troca de janela, ver
+        // getProcessAudioMixerTrack), e o localStream antigo pode ainda estar
+        // segurando uma referência a ela (foi adicionada nele antes). Se parássemos
+        // ela aqui, a faixa morreria de vez logo na primeira troca de janela.
         if (previousLocalStream && previousLocalStream !== localStream) {
-          previousLocalStream.getTracks().forEach(t => t.stop());
+          const mixerTrack = getProcessAudioMixerTrack();
+          previousLocalStream.getTracks().forEach(t => {
+            if (t === mixerTrack) return;
+            t.stop();
+          });
         }
 
         // Mesma razão do processAudioTrack: avisa o WebRTC que é música/áudio de
@@ -3135,9 +3231,15 @@
       }
 
       // Encerra a captura de áudio por processo específico, se estava sendo usada.
-      if (activePcmBridge) {
-        activePcmBridge.stop();
-        activePcmBridge = null;
+      if (activePcmBridge || drainingPcmBridge) {
+        if (activePcmBridge) { activePcmBridge.stop(); activePcmBridge = null; }
+        if (drainingPcmBridge) { drainingPcmBridge.stop(); drainingPcmBridge = null; }
+        // Fecha o mixer persistente também — é um encerramento de verdade da
+        // transmissão (não uma troca de janela no meio do caminho), então a próxima
+        // vez que compartilhar tela começa com um mixer e uma faixa totalmente
+        // novos, em vez de reaproveitar algo de uma sessão de compartilhamento
+        // anterior sem relação nenhuma com essa.
+        if (processAudioMixerCtx) { try { processAudioMixerCtx.close(); } catch (e) {} processAudioMixerCtx = null; processAudioMixerDest = null; }
         if (window.electronAudioAPI) {
           window.electronAudioAPI.stopProcessAudioCapture();
           if (currentChunkHandler) { window.electronAudioAPI.offProcessAudioChunk(currentChunkHandler); currentChunkHandler = null; }
@@ -3274,9 +3376,14 @@
     // chegar — cobre qualquer corrida entre essas três coisas, chamando essa mesma
     // função de vários pontos diferentes do código.
     function ensureProcessAudioTrackAttached() {
-      if (!activePcmBridge || !localStream) return false;
-      const track = activePcmBridge.getTrack();
-      if (!track) return false;
+      // A faixa vem do mixer PERSISTENTE agora, não da bridge individual — é a MESMA
+      // faixa sempre, então essa função só faz alguma coisa de verdade na PRIMEIRA
+      // vez que áudio de processo é usado numa transmissão; em qualquer troca de
+      // janela depois disso, a faixa já anexada continua sendo a certa (só o mix por
+      // baixo dela muda, via crossfade) — sem precisar de replaceTrack nem
+      // renegociação nenhuma.
+      const track = getProcessAudioMixerTrack();
+      if (!track || !localStream) return false;
       track.contentHint = 'music'; // mesma razão do outro ponto onde isso é setado — evita processamento de voz (supressão de ruído/AGC) numa faixa que é música/áudio de programa
       if (localStream.getAudioTracks().includes(track)) return true; // já estava
       console.log('[ProcessAudio] Garantindo que a faixa de áudio está no localStream e avisando quem já está assistindo.');
