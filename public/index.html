@@ -36,7 +36,8 @@
     .toast-item { background: #181b24; border: 1px solid rgba(255, 85, 0, 0.4); color: #f2f3f5; padding: 12px 16px; border-radius: 10px; font-size: 13px; max-width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); animation: toast-in 0.2s ease; }
     @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-    #auth-overlay { position: fixed; inset: 0; background: rgba(12, 13, 16, 0.95); backdrop-filter: blur(12px); z-index: 5000; display: flex; align-items: center; justify-content: center; }
+    #auth-overlay { position: fixed; inset: 0; background: rgba(12, 13, 16, 0.95); backdrop-filter: blur(12px); z-index: 5000; display: none; align-items: center; justify-content: center; }
+    #auth-overlay.visible { display: flex; }
     .auth-card { background: #13151b; width: 420px; padding: 32px; border-radius: 16px; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 20px 50px rgba(0,0,0,0.9), 0 0 30px rgba(255, 85, 0, 0.2); display: flex; flex-direction: column; gap: 20px; }
     .auth-logo { font-size: 24px; font-weight: 800; color: #ff5500; text-align: center; text-shadow: 0 0 12px rgba(255,85,0,0.5); }
 
@@ -46,6 +47,9 @@
     .server-icon:hover { border-radius: 16px; }
     .server-icon.active { border-radius: 16px; }
     .server-icon.active::before { content: ''; position: absolute; left: -14px; top: 10px; bottom: 10px; width: 4px; background: #ff5500; border-radius: 0 4px 4px 0; box-shadow: 0 0 10px #ff5500; }
+    .server-icon-add { color: #00ffcc; font-size: 22px; border-style: dashed; border-color: rgba(0,255,204,0.35); }
+    .server-icon-add:hover { background: rgba(0,255,204,0.1); color: #fff; border-color: #00ffcc; }
+    .server-sidebar-divider { width: 32px; height: 2px; background: rgba(255,255,255,0.08); border-radius: 2px; margin: 2px 0; flex-shrink: 0; }
 
     .server-divider { width: 32px; height: 2px; background: rgba(255, 85, 0, 0.2); border-radius: 1px; margin: 4px 0; flex-shrink: 0; }
     .action-icon { background: #181b24; color: #00ffcc; border: 1px solid rgba(0, 255, 204, 0.2); }
@@ -411,6 +415,7 @@
       <div class="server-menu" id="server-menu">
         <div class="menu-item" onclick="openCreateChannel('text')"><span>Criar Canal de Texto</span><span>+#</span></div>
         <div class="menu-item" onclick="openCreateChannel('voice')"><span>Criar Canal de Voz</span><span>+🔊</span></div>
+        <div class="menu-item" id="invite-people-menu-item" style="display:none;" onclick="copyServerInviteLink()"><span>Convidar Pessoas</span><span>🔗</span></div>
       </div>
 
       <div class="server-channels-scroll-area">
@@ -714,6 +719,55 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="server-join-create-modal">
+    <div class="modal">
+      <button class="modal-close-btn" onclick="closeModal('server-join-create-modal')">✕</button>
+      <div class="modal-header-center">
+        <h2>Servidores</h2>
+        <p>Crie um servidor novo ou entre em um já existente com um link de convite.</p>
+      </div>
+
+      <div id="server-modal-tabs" style="display:flex; gap:6px; margin-bottom:14px;">
+        <button class="tab-btn active" id="server-tab-create" onclick="switchServerModalTab('create')" style="flex:1; background: rgba(255,85,0,0.15); color:#ff5500; border:1px solid #ff5500; border-radius:8px; padding:8px; font-weight:700; cursor:pointer;">Criar Servidor</button>
+        <button class="tab-btn" id="server-tab-join" onclick="switchServerModalTab('join')" style="flex:1; background: transparent; color:#8a8f9d; border:1px solid rgba(255,85,0,0.25); border-radius:8px; padding:8px; font-weight:700; cursor:pointer;">Entrar com Convite</button>
+      </div>
+
+      <div id="server-tab-content-create">
+        <div class="modal-field">
+          <label>Nome do Servidor</label>
+          <input type="text" id="new-server-name" placeholder="ex: Turma do Daniel" />
+        </div>
+        <div class="modal-field" style="flex-direction: row; align-items: center; gap: 8px;">
+          <input type="checkbox" id="new-server-has-password" style="width: auto;" onchange="document.getElementById('new-server-password-field').style.display = this.checked ? 'flex' : 'none';" />
+          <label style="margin: 0;">Proteger com senha</label>
+        </div>
+        <div class="modal-field" id="new-server-password-field" style="display:none;">
+          <label>Senha do Servidor</label>
+          <input type="password" id="new-server-password" placeholder="Só quem souber essa senha entra" />
+        </div>
+        <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
+          <button class="btn-cancel" onclick="closeModal('server-join-create-modal')">Cancelar</button>
+          <button class="btn-create" onclick="confirmCreateServer()">Criar Servidor</button>
+        </div>
+      </div>
+
+      <div id="server-tab-content-join" style="display:none;">
+        <div class="modal-field">
+          <label>Link ou Código de Convite</label>
+          <input type="text" id="join-server-code" placeholder="Cole aqui o link/código que te mandaram" />
+        </div>
+        <div class="modal-field">
+          <label>Senha (se o servidor tiver uma)</label>
+          <input type="password" id="join-server-password" placeholder="Deixe em branco se não souber de nenhuma" />
+        </div>
+        <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
+          <button class="btn-cancel" onclick="closeModal('server-join-create-modal')">Cancelar</button>
+          <button class="btn-create" onclick="confirmJoinServer()">Entrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="rename-channel-modal">
     <div class="modal" style="width: 340px;">
       <button class="modal-close-btn" onclick="closeModal('rename-channel-modal')">✕</button>
@@ -999,17 +1053,10 @@
       if (fn) fn();
     }
 
-    let servers = [{
-      id: 'dspeak',
-      name: 'DSPEAK SERVER',
-      initials: 'DS',
-      channels: [
-        { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
-        { id: 'waiting-room-text', name: 'sala-de-espera', type: 'text' },
-        { id: 'waiting-room', name: 'Sala de Espera', type: 'voice' },
-        { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
-      ]
-    }];
+    // Preenchido pelo servidor via o evento 'my-servers' (ver socket.on('my-servers')
+    // mais abaixo) — cada item já vem com seus próprios canais. Começa vazio: o
+    // servidor manda a lista de verdade assim que a gente se registra.
+    let servers = [];
 
     // --- Cargos (Owner / Moderador / Membro / Guest) ---
     const WAITING_VOICE_ROOM = 'waiting-room';
@@ -1039,9 +1086,19 @@
       return `<button class="role-manage-btn" title="Gerenciar" onclick="event.stopPropagation(); openRoleModal('${safeName}', '${u.socketId}', '${u.role || 'guest'}')">⚙</button>`;
     }
 
-    // Só o Owner pode criar/renomear/excluir canais — some com os botões pros outros.
+    // Dono do servidor ATUAL (não é mais só um Owner global único — cada servidor
+    // criado por um usuário tem o dono dele próprio; o servidor 'dspeak' padrão
+    // continua usando o Owner global de sempre, via a flag isOwner que o servidor
+    // manda pronta em cada item de "my-servers").
+    function isOwnerOfActiveServer() {
+      const srv = servers.find(s => s.id === activeServerId);
+      return !!(srv && srv.isOwner);
+    }
+
+    // Só o dono DESSE servidor pode criar/renomear/excluir canais nele — some com os
+    // botões pros outros.
     function applyRolePermissionsToUI() {
-      const canManageServer = myRole === 'owner';
+      const canManageServer = isOwnerOfActiveServer();
       const addTextBtn = document.getElementById('add-text-channel-btn');
       const addVoiceBtn = document.getElementById('add-voice-channel-btn');
       if (addTextBtn) addTextBtn.style.display = canManageServer ? 'inline' : 'none';
@@ -1146,9 +1203,10 @@
       if (savedUser) {
         username = savedUser;
         if (savedAvatar) userAvatarUrl = savedAvatar;
-        
-        document.getElementById('auth-overlay').style.display = 'none';
+
         initAppSession();
+      } else {
+        document.getElementById('auth-overlay').classList.add('visible');
       }
     });
 
@@ -1167,11 +1225,12 @@
     function initAppSession() {
       updateUserProfileUI();
       socket.emit('register-user', { username, avatarUrl: userAvatarUrl });
-      renderServers();
-      switchServer('dspeak');
       fetchAudioDevices();
       startPingLoop();
       setupStageDockAutoHide();
+      // Se veio de um link de convite (?invite=CODIGO), tenta entrar nesse servidor
+      // assim que a sessão estiver pronta — ver handling do parâmetro mais abaixo.
+      maybeJoinServerFromInviteLink();
     }
 
     function logoutUser() {
@@ -1514,8 +1573,8 @@
     }
 
     function openCreateChannel(type) {
-      if (myRole !== 'owner') {
-        showToast('Só o Owner pode criar ou alterar canais do servidor.');
+      if (!isOwnerOfActiveServer()) {
+        showToast('Só o dono desse servidor pode criar ou alterar canais.');
         return;
       }
       document.getElementById('new-channel-type').value = type;
@@ -1534,7 +1593,7 @@
       const userLimit = document.getElementById('new-channel-limit').value;
       const noAudio = document.getElementById('new-channel-noaudio').checked;
 
-      socket.emit('create-channel', { name, type, userLimit, noAudio });
+      socket.emit('create-channel', { name, type, userLimit, noAudio, serverId: activeServerId });
       closeModal('channel-modal');
     }
 
@@ -1543,7 +1602,7 @@
     let renameChannelTargetType = 'text';
 
     function openRenameChannel(channelId) {
-      if (myRole !== 'owner') { showToast('Só o Owner pode alterar canais do servidor.'); return; }
+      if (!isOwnerOfActiveServer()) { showToast('Só o dono desse servidor pode alterar canais.'); return; }
       const srv = servers.find(s => s.id === activeServerId);
       const ch = srv && srv.channels.find(c => c.id === channelId);
       if (!ch) return;
@@ -1573,7 +1632,7 @@
     }
 
     function deleteChannel(channelId) {
-      if (myRole !== 'owner') { showToast('Só o Owner pode alterar canais do servidor.'); return; }
+      if (!isOwnerOfActiveServer()) { showToast('Só o dono desse servidor pode alterar canais.'); return; }
       const srv = servers.find(s => s.id === activeServerId);
       const ch = srv && srv.channels.find(c => c.id === channelId);
       if (!ch) return;
@@ -1610,11 +1669,13 @@
     }
 
     function toggleServerMenu(e) {
-      e.stopPropagation();
-      if (myRole !== 'owner') {
-        showToast('Só o Owner pode criar ou alterar canais do servidor.');
+      if (e) e.stopPropagation();
+      if (!isOwnerOfActiveServer()) {
+        showToast('Só o dono desse servidor pode criar ou alterar canais.');
         return;
       }
+      const srv = servers.find(s => s.id === activeServerId);
+      document.getElementById('invite-people-menu-item').style.display = (srv && srv.inviteCode) ? 'flex' : 'none';
       const menu = document.getElementById('server-menu');
       menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
     }
@@ -1665,6 +1726,7 @@
       }
       renderServers();
       renderChannels();
+      applyRolePermissionsToUI();
     }
 
     function renderServers() {
@@ -1673,13 +1735,152 @@
       servers.forEach(srv => {
         const div = document.createElement('div');
         div.className = `server-icon ${srv.id === activeServerId ? 'active' : ''}`;
-        div.style.backgroundImage = `url(${MASCOT_ICON_URL})`;
-        div.style.backgroundSize = 'cover';
-        div.style.backgroundPosition = 'center';
-        div.title = srv.name;
+        if (srv.id === 'dspeak') {
+          div.style.backgroundImage = `url(${MASCOT_ICON_URL})`;
+          div.style.backgroundSize = 'cover';
+          div.style.backgroundPosition = 'center';
+        } else {
+          // Iniciais do nome (tipo Discord) — servidores criados por usuários não
+          // têm um ícone próprio ainda, então isso ajuda a diferenciar um do outro.
+          const initials = String(srv.name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 3).toUpperCase();
+          div.textContent = initials;
+        }
+        div.title = srv.name + (srv.hasPassword ? ' 🔒' : '');
         div.onclick = () => switchServer(srv.id);
         container.appendChild(div);
       });
+      if (servers.length > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'server-sidebar-divider';
+        container.appendChild(divider);
+      }
+      const addBtn = document.createElement('div');
+      addBtn.className = 'server-icon server-icon-add';
+      addBtn.title = 'Criar ou entrar num servidor';
+      addBtn.textContent = '+';
+      addBtn.onclick = () => openServerJoinCreateModal();
+      container.appendChild(addBtn);
+    }
+
+    // Servidor manda a lista (só os que a pessoa é membro) sempre que muda algo —
+    // ao registrar, criar um servidor novo, ou entrar num via convite.
+    socket.on('my-servers', (list) => {
+      const wasEmpty = servers.length === 0;
+      // Preserva os canais já carregados localmente pra qualquer servidor que o
+      // 'my-servers' não tenha mandado com canais dessa vez (não deveria acontecer,
+      // mas por segurança contra qualquer chamada futura que mande a lista sem
+      // canais).
+      servers = list;
+      if (!servers.some(s => s.id === activeServerId)) {
+        // Ainda não tínhamos escolhido um servidor (primeira vez), ou o que
+        // estávamos vendo sumiu — volta pro padrão.
+        const fallback = servers.find(s => s.id === 'dspeak') || servers[0];
+        if (fallback) { switchServer(fallback.id); return; }
+      }
+      renderServers();
+      if (activeServerId) {
+        const srv = servers.find(s => s.id === activeServerId);
+        if (srv) renderChannels();
+      }
+      applyRolePermissionsToUI();
+    });
+
+    socket.on('server-create-failed', ({ message }) => showToast(message || 'Não foi possível criar o servidor.'));
+    socket.on('server-join-failed', ({ message }) => showToast(message || 'Não foi possível entrar nesse servidor.'));
+
+    // ---------- Criar / entrar em servidor ----------
+    function openServerJoinCreateModal() {
+      document.getElementById('new-server-name').value = '';
+      document.getElementById('new-server-has-password').checked = false;
+      document.getElementById('new-server-password').value = '';
+      document.getElementById('new-server-password-field').style.display = 'none';
+      document.getElementById('join-server-code').value = '';
+      document.getElementById('join-server-password').value = '';
+
+      // Criar servidor novo é restrito ao Owner global — quem não for, só vê a aba
+      // de entrar com convite (sem isso, virava bagunça de servidor toda hora).
+      const canCreate = myRole === 'owner';
+      document.getElementById('server-tab-create').style.display = canCreate ? 'block' : 'none';
+      switchServerModalTab(canCreate ? 'create' : 'join');
+      openModal('server-join-create-modal');
+    }
+
+    function switchServerModalTab(tab) {
+      const isCreate = tab === 'create';
+      document.getElementById('server-tab-content-create').style.display = isCreate ? 'block' : 'none';
+      document.getElementById('server-tab-content-join').style.display = isCreate ? 'none' : 'block';
+      const createBtn = document.getElementById('server-tab-create');
+      const joinBtn = document.getElementById('server-tab-join');
+      createBtn.style.background = isCreate ? 'rgba(255,85,0,0.15)' : 'transparent';
+      createBtn.style.color = isCreate ? '#ff5500' : '#8a8f9d';
+      joinBtn.style.background = isCreate ? 'transparent' : 'rgba(255,85,0,0.15)';
+      joinBtn.style.color = isCreate ? '#8a8f9d' : '#ff5500';
+    }
+
+    function confirmCreateServer() {
+      const name = document.getElementById('new-server-name').value.trim();
+      if (!name) { showToast('Digite um nome pro servidor.'); return; }
+      const hasPassword = document.getElementById('new-server-has-password').checked;
+      const password = hasPassword ? document.getElementById('new-server-password').value : '';
+      if (hasPassword && !password) { showToast('Digite a senha, ou desmarque a opção de senha.'); return; }
+
+      socket.emit('create-server', { name, password });
+      closeModal('server-join-create-modal');
+      showToast(`Criando o servidor "${name}"...`);
+    }
+
+    // Aceita tanto o link inteiro (https://.../?invite=CODIGO) quanto só o código puro
+    // colado — extrai o código dos dois jeitos, pra não travar quem colar de forma
+    // diferente.
+    function extractInviteCode(raw) {
+      const value = String(raw || '').trim();
+      if (!value) return '';
+      try {
+        const url = new URL(value);
+        const fromQuery = url.searchParams.get('invite');
+        if (fromQuery) return fromQuery.trim();
+      } catch (e) { /* não é uma URL válida — trata como código puro mesmo */ }
+      return value;
+    }
+
+    function confirmJoinServer() {
+      const inviteCode = extractInviteCode(document.getElementById('join-server-code').value);
+      if (!inviteCode) { showToast('Cole um link ou código de convite válido.'); return; }
+      const password = document.getElementById('join-server-password').value;
+
+      socket.emit('join-server-by-invite', { inviteCode, password });
+      closeModal('server-join-create-modal');
+    }
+
+    // Se a pessoa abriu o app através de um link de convite (ex:
+    // https://dspeak.onrender.com/?invite=CODIGO), tenta entrar nesse servidor
+    // automaticamente assim que a sessão estiver pronta. Se o servidor tiver senha,
+    // 'server-join-failed' vai avisar e a pessoa pode tentar de novo pelo modal
+    // "Entrar com Convite", informando a senha.
+    function maybeJoinServerFromInviteLink() {
+      const params = new URLSearchParams(window.location.search);
+      const inviteCode = params.get('invite');
+      if (!inviteCode) return;
+      socket.emit('join-server-by-invite', { inviteCode: inviteCode.trim(), password: '' });
+      // Limpa o parâmetro da URL — sem isso, um F5 tentaria entrar de novo toda vez.
+      params.delete('invite');
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '') + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    }
+
+    // Copia o link de convite do servidor ATUAL (só existe se ela for a dona dele —
+    // o servidor padrão 'dspeak' não tem convite, é aberto pra todo mundo).
+    function copyServerInviteLink() {
+      const srv = servers.find(s => s.id === activeServerId);
+      if (!srv || !srv.inviteCode) { showToast('Esse servidor não tem link de convite.'); return; }
+      const link = `${window.location.origin}${window.location.pathname}?invite=${srv.inviteCode}`;
+      navigator.clipboard.writeText(link).then(() => {
+        showToast('Link de convite copiado!');
+      }).catch(() => {
+        prompt('Copie o link de convite:', link);
+      });
+      toggleServerMenu(); // fecha o menu depois de clicar
     }
 
     function renderChannels() {
@@ -1701,8 +1902,8 @@
             ${isVoice ? channelOccupancyHtml(ch, occupantCount) : ''}
             ${unreadBadgeHtml(ch)}
             <div class="channel-actions">
-              ${(myRole === 'owner' && !ch.locked) ? `<button class="channel-action-btn" title="Renomear canal" onclick="event.stopPropagation(); openRenameChannel('${ch.id}')">✏️</button>` : ''}
-              ${(myRole === 'owner' && !ch.undeletable) ? `<button class="channel-action-btn delete" title="Excluir canal" onclick="event.stopPropagation(); deleteChannel('${ch.id}')">🗑</button>` : ''}
+              ${(isOwnerOfActiveServer() && !ch.locked) ? `<button class="channel-action-btn" title="Renomear canal" onclick="event.stopPropagation(); openRenameChannel('${ch.id}')">✏️</button>` : ''}
+              ${(isOwnerOfActiveServer() && !ch.undeletable) ? `<button class="channel-action-btn delete" title="Excluir canal" onclick="event.stopPropagation(); deleteChannel('${ch.id}')">🗑</button>` : ''}
             </div>
           </div>
         `;
@@ -1847,7 +2048,7 @@
         micProcessingCtx = new (window.AudioContext || window.webkitAudioContext)();
         micSourceNode = micProcessingCtx.createMediaStreamSource(rawStream);
         micGateGainNode = micProcessingCtx.createGain();
-        micGateGainNode.gain.value = 0.18;
+        micGateGainNode.gain.value = 0.05;
         micDestNode = micProcessingCtx.createMediaStreamDestination();
         micSourceNode.connect(micGateGainNode);
         micGateGainNode.connect(micDestNode);
@@ -1857,18 +2058,33 @@
         micSourceNode.connect(analyser);
         const data = new Uint8Array(analyser.frequencyBinCount);
 
+        // Foca a leitura de volume só na faixa de frequência da VOZ humana (~200Hz a
+        // ~3500Hz) — som de tecla batendo é um estalo mais agudo/seco, com bastante
+        // energia FORA dessa faixa (bem mais agudo). Somando só essa faixa, em vez de
+        // todo o espectro, o volume "de teclado" conta bem menos, e é bem mais difícil
+        // dele sozinho abrir o portão.
+        const sr = micProcessingCtx.sampleRate;
+        const binHz = sr / 2 / analyser.frequencyBinCount;
+        const voiceLowBin = Math.max(1, Math.floor(200 / binHz));
+        const voiceHighBin = Math.min(analyser.frequencyBinCount - 1, Math.ceil(3500 / binHz));
+
         let gateOpen = false;
         let lastAboveTime = 0;
+        let aboveSince = 0; // quando o nível começou a ficar acima do limite, sem interrupção
         let smoothedLevel = 0;
         const HOLD_MS = 700; // segura bem mais tempo aberto entre palavras/pausas de respiração
-        const GATE_CLOSED_GAIN = 0.18; // não zera o volume — só reduz bastante, sem soar "cortado"
+        // Precisa ficar acima do limite por esse tempo SEGUIDO antes de abrir de vez —
+        // uma batida de tecla é rápida demais (poucos ms) pra se sustentar por isso;
+        // voz de verdade começando já se sustenta naturalmente.
+        const ATTACK_MS = 120;
+        const GATE_CLOSED_GAIN = 0.05; // bem mais baixo que antes — quase mudo quando fechado
 
         const tick = () => {
           if (!micProcessingCtx || micProcessingCtx.state === 'closed') return;
           analyser.getByteFrequencyData(data);
           let sum = 0;
-          for (let i = 0; i < data.length; i++) sum += data[i];
-          const rawLevel = sum / data.length;
+          for (let i = voiceLowBin; i <= voiceHighBin; i++) sum += data[i];
+          const rawLevel = sum / (voiceHighBin - voiceLowBin + 1);
           // Média móvel: evita que uma variação rápida de meio segundo (respiração,
           // pausa entre palavras) já feche o gate — é isso que causava o volume
           // "bombando" (caindo e voltando de repente) que você notou.
@@ -1878,14 +2094,20 @@
           if (smoothedLevel > NOISE_GATE_THRESHOLD) {
             lastAboveTime = now;
             if (!gateOpen) {
-              gateOpen = true;
-              micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
-              micGateGainNode.gain.linearRampToValueAtTime(1, micProcessingCtx.currentTime + 0.06);
+              if (!aboveSince) aboveSince = now; // começou a ficar acima agora — marca o início
+              if (now - aboveSince >= ATTACK_MS) {
+                gateOpen = true;
+                micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
+                micGateGainNode.gain.linearRampToValueAtTime(1, micProcessingCtx.currentTime + 0.06);
+              }
             }
-          } else if (gateOpen && (now - lastAboveTime) > HOLD_MS) {
-            gateOpen = false;
-            micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
-            micGateGainNode.gain.linearRampToValueAtTime(GATE_CLOSED_GAIN, micProcessingCtx.currentTime + 0.5);
+          } else {
+            aboveSince = 0; // caiu abaixo do limite — reseta a contagem de sustentação
+            if (gateOpen && (now - lastAboveTime) > HOLD_MS) {
+              gateOpen = false;
+              micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
+              micGateGainNode.gain.linearRampToValueAtTime(GATE_CLOSED_GAIN, micProcessingCtx.currentTime + 0.5);
+            }
           }
           noiseGateRafId = requestAnimationFrame(tick);
         };
@@ -4277,10 +4499,17 @@
 
     // Canais agora vivem no servidor e são os mesmos pra todo mundo — esse evento chega
     // sempre que alguém cria, renomeia ou exclui um canal (inclusive nós mesmos).
-    socket.on('channels-sync', (channelsList) => {
-      const srv = servers.find(s => s.id === activeServerId);
+    socket.on('channels-sync', (payload) => {
+      const { serverId, channels: channelsList } = payload || {};
+      const srv = servers.find(s => s.id === serverId);
       if (!srv) return;
       srv.channels = channelsList;
+
+      // Só mexe na tela de canal ativo/chat se essa atualização for do servidor que
+      // a pessoa está VENDO agora — uma atualização de canais de outro servidor (em
+      // que ela também é membro, mas não está olhando no momento) não deve mudar
+      // nada na tela dela.
+      if (serverId !== activeServerId) { renderServers(); return; }
 
       let active = srv.channels.find(c => c.id === activeChannel);
       if (!active) {
