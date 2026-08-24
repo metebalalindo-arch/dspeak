@@ -723,6 +723,17 @@
           <input type="checkbox" id="new-channel-noaudio" style="width: auto;" />
           <label style="margin: 0;">Sala silenciosa (tipo AFK) — ninguém fala aqui</label>
         </div>
+        <div class="modal-field" style="flex-direction: row; align-items: center; gap: 8px;">
+          <input type="checkbox" id="new-channel-has-password" style="width: auto;" onchange="document.getElementById('new-channel-password-field').style.display = this.checked ? 'flex' : 'none';" />
+          <label style="margin: 0;">Proteger com senha</label>
+        </div>
+        <div class="modal-field" id="new-channel-password-field" style="display:none;">
+          <label>Senha da Sala</label>
+          <div style="position:relative;">
+            <input type="password" id="new-channel-password" placeholder="Só quem souber essa senha entra" style="width:100%; padding-right:38px; box-sizing:border-box;" />
+            <button type="button" onclick="togglePasswordVisibility('new-channel-password', this)" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; padding:2px;">👁️</button>
+          </div>
+        </div>
       </div>
       <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
         <button class="btn-cancel" onclick="closeModal('channel-modal')">Cancelar</button>
@@ -833,10 +844,42 @@
           <input type="checkbox" id="rename-channel-noaudio" style="width: auto;" />
           <label style="margin: 0;">Sala silenciosa (tipo AFK) — ninguém fala aqui</label>
         </div>
+        <div class="modal-field" style="flex-direction: row; align-items: center; gap: 8px;">
+          <input type="checkbox" id="rename-channel-has-password" style="width: auto;" onchange="document.getElementById('rename-channel-password-field').style.display = this.checked ? 'flex' : 'none';" />
+          <label style="margin: 0;">Proteger com senha</label>
+        </div>
+        <div class="modal-field" id="rename-channel-password-field" style="display:none;">
+          <label>Nova Senha</label>
+          <div style="position:relative;">
+            <input type="password" id="rename-channel-password" placeholder="Deixe em branco pra manter a senha atual" style="width:100%; padding-right:38px; box-sizing:border-box;" />
+            <button type="button" onclick="togglePasswordVisibility('rename-channel-password', this)" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; padding:2px;">👁️</button>
+          </div>
+        </div>
       </div>
       <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
         <button class="btn-cancel" onclick="closeModal('rename-channel-modal')">Cancelar</button>
         <button class="btn-create" onclick="confirmRenameChannel()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="voice-room-password-modal">
+    <div class="modal" style="width: 340px;">
+      <button class="modal-close-btn" onclick="closeModal('voice-room-password-modal')">✕</button>
+      <div class="modal-header-center">
+        <h2 id="voice-room-password-title">Sala protegida</h2>
+        <p>Essa sala de voz tem senha.</p>
+      </div>
+      <div class="modal-field">
+        <label>Senha</label>
+        <div style="position:relative;">
+          <input type="password" id="voice-room-password-input" placeholder="Digite a senha da sala" style="width:100%; padding-right:38px; box-sizing:border-box;" onkeypress="if(event.key==='Enter') confirmVoiceRoomPassword()" />
+          <button type="button" onclick="togglePasswordVisibility('voice-room-password-input', this)" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; padding:2px;">👁️</button>
+        </div>
+      </div>
+      <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
+        <button class="btn-cancel" onclick="closeModal('voice-room-password-modal')">Cancelar</button>
+        <button class="btn-create" onclick="confirmVoiceRoomPassword()">Entrar</button>
       </div>
     </div>
   </div>
@@ -970,7 +1013,7 @@
       socket.emit('register-user', { username, avatarUrl: userAvatarUrl });
 
       if (connectedVoiceChannel) {
-        socket.emit('join-voice-room', { channelId: connectedVoiceChannel, username, avatarUrl: userAvatarUrl, type: 'voice' });
+        socket.emit('join-voice-room', { channelId: connectedVoiceChannel, username, avatarUrl: userAvatarUrl, type: 'voice', password: connectedVoiceChannelPassword });
         socket.emit('join-room', connectedVoiceChannel);
 
         Object.keys(peerConnections).forEach(id => { peerConnections[id].close(); delete peerConnections[id]; });
@@ -1172,6 +1215,11 @@
     let activeServerId = 'dspeak';
     let activeChannel = 'geral';
     let connectedVoiceChannel = null;
+    // Senha usada pra entrar na sala de voz atual (se ela tiver uma) — guardada só
+    // pra poder reentrar sozinho sem pedir de novo se a conexão cair e voltar
+    // (reconexão usa um socket.id novo, então o servidor não sabe automaticamente
+    // que já tínhamos passado pela senha antes).
+    let connectedVoiceChannelPassword = null;
     // Toda vez que trocamos de sala de voz, isso incrementa. Serve pra uma troca antiga
     // (que ainda está no meio do processo assíncrono de conectar o microfone) perceber
     // que já foi substituída por uma troca mais nova e desistir, em vez de "brigar" com
@@ -1645,6 +1693,9 @@
       document.getElementById('new-channel-name').value = '';
       document.getElementById('new-channel-limit').value = '';
       document.getElementById('new-channel-noaudio').checked = false;
+      document.getElementById('new-channel-has-password').checked = false;
+      document.getElementById('new-channel-password-field').style.display = 'none';
+      document.getElementById('new-channel-password').value = '';
       toggleVoiceOnlyChannelFields('new');
       openModal('channel-modal');
     }
@@ -1656,8 +1707,11 @@
 
       const userLimit = document.getElementById('new-channel-limit').value;
       const noAudio = document.getElementById('new-channel-noaudio').checked;
+      const password = (type === 'voice' && document.getElementById('new-channel-has-password').checked)
+        ? document.getElementById('new-channel-password').value
+        : '';
 
-      socket.emit('create-channel', { name, type, userLimit, noAudio, serverId: activeServerId });
+      socket.emit('create-channel', { name, type, userLimit, noAudio, password, serverId: activeServerId });
       closeModal('channel-modal');
     }
 
@@ -1676,6 +1730,12 @@
       document.getElementById('rename-channel-input').value = ch.name;
       document.getElementById('rename-channel-limit').value = ch.userLimit || '';
       document.getElementById('rename-channel-noaudio').checked = !!ch.noAudio;
+      document.getElementById('rename-channel-has-password').checked = !!ch.hasPassword;
+      document.getElementById('rename-channel-password-field').style.display = ch.hasPassword ? 'flex' : 'none';
+      document.getElementById('rename-channel-password').value = '';
+      document.getElementById('rename-channel-password').placeholder = ch.hasPassword
+        ? 'Deixe em branco pra manter a senha atual'
+        : 'Digite a nova senha';
       toggleVoiceOnlyChannelFields('rename');
       openModal('rename-channel-modal');
     }
@@ -1688,6 +1748,16 @@
       if (renameChannelTargetType === 'voice') {
         payload.userLimit = document.getElementById('rename-channel-limit').value;
         payload.noAudio = document.getElementById('rename-channel-noaudio').checked;
+
+        const wantsPassword = document.getElementById('rename-channel-has-password').checked;
+        const typedPassword = document.getElementById('rename-channel-password').value;
+        if (!wantsPassword) {
+          payload.removePassword = true;
+        } else if (typedPassword) {
+          payload.newPassword = typedPassword;
+        }
+        // Marcou mas deixou em branco e já tinha senha: não manda nada — servidor
+        // entende como "mantém a senha atual".
       }
 
       socket.emit('rename-channel', payload);
@@ -2036,6 +2106,7 @@
         div.innerHTML = `
           <div class="channel-info"><span>${isVoice ? '🔊' : '#'}</span><span>${ch.name}</span></div>
           <div class="channel-right-controls">
+            ${isVoice && ch.hasPassword ? `<span class="channel-silent-badge" title="Sala protegida com senha">🔒</span>` : ''}
             ${isVoice && ch.noAudio ? `<span class="channel-silent-badge" title="Sala silenciosa (AFK) — sem áudio">🔇</span>` : ''}
             ${isVoice ? channelOccupancyHtml(ch, occupantCount) : ''}
             ${unreadBadgeHtml(ch)}
@@ -2049,6 +2120,13 @@
         div.onclick = () => {
           if (isVoice && ch.userLimit > 0 && occupantCount >= ch.userLimit && connectedVoiceChannel !== ch.id) {
             showToast(`Sala "${ch.name}" está cheia (máximo ${ch.userLimit} pessoas).`);
+            return;
+          }
+          // Sala de voz com senha: se ainda não estamos dentro dela e não somos o
+          // dono do servidor (que sempre passa direto, já que foi quem definiu a
+          // senha), pede a senha antes de tentar entrar de verdade.
+          if (isVoice && ch.hasPassword && connectedVoiceChannel !== ch.id && !isOwnerOfActiveServer()) {
+            openVoiceRoomPasswordPrompt(ch);
             return;
           }
           activeChannel = ch.id;
@@ -2636,7 +2714,7 @@
       connectVoice(ch);
     });
 
-    function connectVoice(channel) {
+    function connectVoice(channel, password) {
       const myGeneration = ++voiceConnectionGeneration;
       const isSwitchingRoom = connectedVoiceChannel && connectedVoiceChannel !== channel.id;
       if (isSwitchingRoom) {
@@ -2654,13 +2732,14 @@
         renderStreamsContainer();
       }
       connectedVoiceChannel = channel.id;
+      connectedVoiceChannelPassword = password || null;
       currentRoomIsSilent = !!channel.noAudio;
       playSound('join');
       if (currentRoomIsSilent) {
         isMuted = true;
         showToast(`"${channel.name}" é uma sala silenciosa (AFK) — seu microfone fica mutado aqui.`);
       }
-      socket.emit('join-voice-room', { channelId: channel.id, username, avatarUrl: userAvatarUrl, type: 'voice' });
+      socket.emit('join-voice-room', { channelId: channel.id, username, avatarUrl: userAvatarUrl, type: 'voice', password });
 
       document.getElementById('mic-btn').disabled = false;
       document.getElementById('mic-btn').classList.toggle('active-off', isMuted);
@@ -2736,6 +2815,7 @@
         playSound('leave');
         socket.emit('leave-voice-room', { channelId: connectedVoiceChannel, username });
         connectedVoiceChannel = null;
+        connectedVoiceChannelPassword = null;
       }
       teardownVoiceConnectionState();
     }
@@ -2747,8 +2827,47 @@
       showToast(`Sala "${data.name}" está cheia (máximo ${data.limit} pessoas).`);
       if (connectedVoiceChannel === data.channelId) {
         connectedVoiceChannel = null;
+        connectedVoiceChannelPassword = null;
         teardownVoiceConnectionState();
       }
+    });
+
+    // ---------- Sala de voz com senha ----------
+    let voiceRoomPasswordTarget = null; // o canal que estamos tentando entrar
+
+    function openVoiceRoomPasswordPrompt(channel) {
+      voiceRoomPasswordTarget = channel;
+      document.getElementById('voice-room-password-title').textContent = `"${channel.name}" tem senha`;
+      document.getElementById('voice-room-password-input').value = '';
+      openModal('voice-room-password-modal');
+    }
+
+    function confirmVoiceRoomPassword() {
+      if (!voiceRoomPasswordTarget) { closeModal('voice-room-password-modal'); return; }
+      const password = document.getElementById('voice-room-password-input').value;
+      const channel = voiceRoomPasswordTarget;
+      closeModal('voice-room-password-modal');
+
+      activeChannel = channel.id;
+      document.getElementById('chat-header-title').textContent = `🔊 ${channel.name}`;
+      connectVoice(channel, password);
+      socket.emit('join-room', channel.id);
+      switchWorkspaceLayout(true);
+      loadChannelMessages(channel.id);
+      renderChannels();
+    }
+
+    socket.on('voice-room-wrong-password', (data) => {
+      showToast(`Senha incorreta pra "${data.name}".`);
+      if (connectedVoiceChannel === data.channelId) {
+        connectedVoiceChannel = null;
+        connectedVoiceChannelPassword = null;
+        teardownVoiceConnectionState();
+      }
+      // Reabre o prompt pra tentar de novo, já sabendo qual sala era.
+      const srv = servers.find(s => s.id === activeServerId);
+      const ch = srv && srv.channels.find(c => c.id === data.channelId);
+      if (ch) openVoiceRoomPasswordPrompt(ch);
     });
 
     // Ícones de mutado/ensurdecido: usa o estado local pra mim mesmo (feedback na hora)
