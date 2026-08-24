@@ -3059,6 +3059,17 @@
         processAudioMixerCtx = new AudioContext();
         processAudioMixerDest = processAudioMixerCtx.createMediaStreamDestination();
       }
+      // Sem isso, esse AudioContext podia ficar "suspenso" (nunca ligado de vez) —
+      // e nesse estado, o grafo de áudio dele (Gain -> MediaStreamDestination)
+      // simplesmente não processa nada, produzindo uma faixa de saída SILENCIOSA
+      // mesmo recebendo dado real por dentro. Isso batia exatamente com o sintoma:
+      // bitrate cheio chegando (o Opus continua mandando pacotes em taxa plena
+      // mesmo silêncio, já que desligamos o corte de silêncio/DTX), mas o volume
+      // decodificado do outro lado ficava perto de zero — dado de verdade, mas
+      // carregando silêncio digital.
+      if (processAudioMixerCtx.state === 'suspended') {
+        processAudioMixerCtx.resume().catch(() => {});
+      }
       return { ctx: processAudioMixerCtx, dest: processAudioMixerDest };
     }
     function getProcessAudioMixerTrack() {
