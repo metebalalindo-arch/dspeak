@@ -396,6 +396,18 @@ io.on('connection', (socket) => {
     socket.role = role;
     socket.emit('your-role', { role, username: data.username });
 
+    // Só uma sessão ativa por vez pra cada pessoa (tipo WhatsApp Web) — se essa
+    // pessoa já estava conectada em outro lugar (outra aba, outro dispositivo, o
+    // app desktop E o site ao mesmo tempo), essa conexão ANTIGA é desconectada
+    // agora, com um aviso — evita ficar "meio conectado" em dois lugares ao mesmo
+    // tempo (duplicando na lista de voz, brigando por quem está "realmente" ali).
+    findSocketsByUsername(data.username).forEach(otherSocket => {
+      if (otherSocket.id !== socket.id) {
+        otherSocket.emit('session-replaced');
+        otherSocket.disconnect(true);
+      }
+    });
+
     // Manda pro cliente que acabou de entrar o retrato atual de quem já está
     // conectado nas salas de voz. Sem isso, ele só ficava sabendo quando alguém
     // MAIS entrava ou saía depois — por isso a lista ficava vazia até você mesmo
@@ -594,6 +606,7 @@ io.on('connection', (socket) => {
     saveChannels();
 
     sendMyServers(socket);
+    socket.emit('server-joined', { serverId: id });
   });
 
   // ---------- Entrar num servidor existente via link/código de convite ----------
@@ -605,9 +618,10 @@ io.on('connection', (socket) => {
     if (!srv) { socket.emit('server-join-failed', { message: 'Link de convite inválido ou expirado.' }); return; }
 
     if (isMemberOfServer(srv, socket.username)) {
-      // Já é membro — só reenvia a lista (cobre o caso de clicar num link de convite
-      // de um servidor que a pessoa já está).
+      // Já é membro — só reenvia a lista e manda pra lá mesmo assim (cobre o caso de
+      // clicar num link de convite de um servidor que a pessoa já está).
       sendMyServers(socket);
+      socket.emit('server-joined', { serverId: srv.id });
       return;
     }
 
@@ -621,6 +635,11 @@ io.on('connection', (socket) => {
     saveServers();
 
     sendMyServers(socket);
+    // Avisa o cliente pra TROCAR pra esse servidor agora — sem isso, a pessoa
+    // continuava vendo o servidor em que já estava (ex: o padrão), mesmo já sendo
+    // membro do novo, porque 'my-servers' sozinho só atualiza a LISTA, não diz pra
+    // navegar pra lugar nenhum.
+    socket.emit('server-joined', { serverId: srv.id });
   });
 
   // ---------- Gestão de cargos ----------
