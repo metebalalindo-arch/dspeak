@@ -3672,7 +3672,13 @@
         // "CABLE Output" de um cabo de áudio virtual, usado pra isolar o som de um
         // programa só), adiciona ele também. É uma API padrão do navegador — sem
         // biblioteca de terceiros, então não tem risco de travar o app.
-        if (selectedScreenAudioDeviceId) {
+        // IMPORTANTE: só faz isso se NÃO estivermos já usando áudio de processo
+        // específico — os dois usam a MESMA "vaga" de sender (contentHint 'music',
+        // via screenAudioSenderByPc), então rodar os dois juntos fazia esse
+        // dispositivo extra (geralmente sem nada roteado pra ele nesse cenário)
+        // substituir silenciosamente a faixa de áudio de processo pouco depois dela
+        // começar — exatamente o "toca um pouquinho e corta" que foi relatado.
+        if (selectedScreenAudioDeviceId && !processAudioTrack) {
           try {
             const deviceStream = await navigator.mediaDevices.getUserMedia({
               audio: {
