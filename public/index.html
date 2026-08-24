@@ -427,6 +427,7 @@
         <div class="menu-item" onclick="openCreateChannel('text')"><span>Criar Canal de Texto</span><span>+#</span></div>
         <div class="menu-item" onclick="openCreateChannel('voice')"><span>Criar Canal de Voz</span><span>+🔊</span></div>
         <div class="menu-item" id="invite-people-menu-item" style="display:none;" onclick="copyServerInviteLink()"><span>Convidar Pessoas</span><span>🔗</span></div>
+        <div class="menu-item" id="edit-server-menu-item" style="display:none;" onclick="openEditServerModal()"><span>Editar Servidor</span><span>✏️</span></div>
       </div>
 
       <div class="server-channels-scroll-area">
@@ -754,7 +755,10 @@
         </div>
         <div class="modal-field" id="new-server-password-field" style="display:none;">
           <label>Senha do Servidor</label>
-          <input type="password" id="new-server-password" placeholder="Só quem souber essa senha entra" />
+          <div style="position:relative;">
+            <input type="password" id="new-server-password" placeholder="Só quem souber essa senha entra" style="width:100%; padding-right:38px; box-sizing:border-box;" />
+            <button type="button" onclick="togglePasswordVisibility('new-server-password', this)" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; padding:2px;">👁️</button>
+          </div>
         </div>
         <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
           <button class="btn-cancel" onclick="closeModal('server-join-create-modal')">Cancelar</button>
@@ -769,12 +773,43 @@
         </div>
         <div class="modal-field">
           <label>Senha (se o servidor tiver uma)</label>
-          <input type="password" id="join-server-password" placeholder="Deixe em branco se não souber de nenhuma" />
+          <div style="position:relative;">
+            <input type="password" id="join-server-password" placeholder="Deixe em branco se não souber de nenhuma" style="width:100%; padding-right:38px; box-sizing:border-box;" />
+            <button type="button" onclick="togglePasswordVisibility('join-server-password', this)" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; padding:2px;">👁️</button>
+          </div>
         </div>
         <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
           <button class="btn-cancel" onclick="closeModal('server-join-create-modal')">Cancelar</button>
           <button class="btn-create" onclick="confirmJoinServer()">Entrar</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="edit-server-modal">
+    <div class="modal">
+      <button class="modal-close-btn" onclick="closeModal('edit-server-modal')">✕</button>
+      <div class="modal-header-center">
+        <h2>Editar Servidor</h2>
+      </div>
+      <div class="modal-field">
+        <label>Nome do Servidor</label>
+        <input type="text" id="edit-server-name" placeholder="Nome do servidor" />
+      </div>
+      <div class="modal-field" style="flex-direction: row; align-items: center; gap: 8px;">
+        <input type="checkbox" id="edit-server-has-password" style="width: auto;" onchange="document.getElementById('edit-server-password-field').style.display = this.checked ? 'flex' : 'none';" />
+        <label style="margin: 0;">Proteger com senha</label>
+      </div>
+      <div class="modal-field" id="edit-server-password-field" style="display:none;">
+        <label>Nova Senha</label>
+        <div style="position:relative;">
+          <input type="password" id="edit-server-password" placeholder="Deixe em branco pra manter a senha atual" style="width:100%; padding-right:38px; box-sizing:border-box;" />
+          <button type="button" onclick="togglePasswordVisibility('edit-server-password', this)" style="position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; font-size:16px; padding:2px;">👁️</button>
+        </div>
+      </div>
+      <div class="settings-footer-bar" style="padding: 10px 0 0 0; background: none; border: none;">
+        <button class="btn-cancel" onclick="closeModal('edit-server-modal')">Cancelar</button>
+        <button class="btn-create" onclick="confirmEditServer()">Salvar</button>
       </div>
     </div>
   </div>
@@ -1705,6 +1740,7 @@
       }
       const srv = servers.find(s => s.id === activeServerId);
       document.getElementById('invite-people-menu-item').style.display = (srv && srv.inviteCode) ? 'flex' : 'none';
+      document.getElementById('edit-server-menu-item').style.display = (srv && srv.id !== 'dspeak') ? 'flex' : 'none';
       const menu = document.getElementById('server-menu');
       menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
     }
@@ -1934,6 +1970,55 @@
         prompt('Copie o link de convite:', link);
       });
       toggleServerMenu(); // fecha o menu depois de clicar
+    }
+
+    // Alterna um campo de senha entre escondido (•••) e visível (texto normal) — usado
+    // em todo campo de senha do app (criar servidor, entrar com convite, editar
+    // servidor).
+    function togglePasswordVisibility(inputId, btnEl) {
+      const input = document.getElementById(inputId);
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      btnEl.textContent = showing ? '👁️' : '🙈';
+    }
+
+    // ---------- Editar servidor (nome / senha) ----------
+    function openEditServerModal() {
+      const srv = servers.find(s => s.id === activeServerId);
+      if (!srv || srv.id === 'dspeak' || !srv.isOwner) return;
+      document.getElementById('edit-server-name').value = srv.name;
+      document.getElementById('edit-server-has-password').checked = !!srv.hasPassword;
+      document.getElementById('edit-server-password-field').style.display = srv.hasPassword ? 'flex' : 'none';
+      document.getElementById('edit-server-password').value = '';
+      document.getElementById('edit-server-password').placeholder = srv.hasPassword
+        ? 'Deixe em branco pra manter a senha atual'
+        : 'Digite a nova senha';
+      toggleServerMenu(); // fecha o menu do servidor antes de abrir o modal
+      openModal('edit-server-modal');
+    }
+
+    function confirmEditServer() {
+      const srv = servers.find(s => s.id === activeServerId);
+      if (!srv) return;
+      const name = document.getElementById('edit-server-name').value.trim();
+      if (!name) { showToast('O servidor precisa de um nome.'); return; }
+
+      const wantsPassword = document.getElementById('edit-server-has-password').checked;
+      const typedPassword = document.getElementById('edit-server-password').value;
+      const payload = { serverId: srv.id, name };
+
+      if (!wantsPassword) {
+        // Desmarcou a opção — tira a senha, mesmo que já tivesse uma.
+        payload.removePassword = true;
+      } else if (typedPassword) {
+        // Marcou e digitou algo novo — troca (ou define pela primeira vez) a senha.
+        payload.newPassword = typedPassword;
+      }
+      // Marcou mas deixou em branco E já tinha senha: não manda nem removePassword
+      // nem newPassword — o servidor entende isso como "mantém a senha atual".
+
+      socket.emit('rename-server', payload);
+      closeModal('edit-server-modal');
     }
 
     function renderChannels() {
