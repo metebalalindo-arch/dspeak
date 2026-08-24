@@ -38,6 +38,8 @@
 
     #auth-overlay { position: fixed; inset: 0; background: rgba(12, 13, 16, 0.95); backdrop-filter: blur(12px); z-index: 5000; display: none; align-items: center; justify-content: center; }
     #auth-overlay.visible { display: flex; }
+    #session-replaced-overlay { position: fixed; inset: 0; background: rgba(12, 13, 16, 0.97); backdrop-filter: blur(12px); z-index: 6000; display: none; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+    #session-replaced-overlay.visible { display: flex; }
     .auth-card { background: #13151b; width: 420px; padding: 32px; border-radius: 16px; border: 1px solid rgba(255, 85, 0, 0.3); box-shadow: 0 20px 50px rgba(0,0,0,0.9), 0 0 30px rgba(255, 85, 0, 0.2); display: flex; flex-direction: column; gap: 20px; }
     .auth-logo { font-size: 24px; font-weight: 800; color: #ff5500; text-align: center; text-shadow: 0 0 12px rgba(255,85,0,0.5); }
 
@@ -385,6 +387,15 @@
 <body>
 
   <div id="toast-container"></div>
+
+  <div id="session-replaced-overlay">
+    <div class="auth-card">
+      <div class="auth-logo">DSPEAK CLIENT</div>
+      <div style="font-size: 15px; color: #f2f3f5; margin-top: 6px;">Você entrou no DSpeak em outro lugar</div>
+      <div style="font-size: 13px; color: #8a8f9d; text-align: center; margin-top: -6px;">Só dá pra ficar conectado num lugar por vez — essa aba/dispositivo foi desconectado.</div>
+      <button class="btn-create" onclick="location.reload()" style="width: 100%; margin-top: 6px;">Reconectar aqui</button>
+    </div>
+  </div>
 
   <div id="auth-overlay">
     <div class="auth-card">
@@ -896,10 +907,24 @@
     let hadVoiceConnectionBeforeDrop = false;
 
     socket.on('disconnect', () => {
+      if (sessionReplacedByAnotherTab) return; // já tratado pelo overlay dedicado, não mostra o toast de reconexão
       hadVoiceConnectionBeforeDrop = !!connectedVoiceChannel;
       if (hadVoiceConnectionBeforeDrop) {
         showToast('Conexão com o servidor caiu. Tentando reconectar...');
       }
+    });
+
+    // Só uma sessão ativa por vez (tipo WhatsApp Web) — se a pessoa abriu o DSpeak em
+    // outro lugar (outra aba, outro dispositivo, ou o app desktop e o site ao mesmo
+    // tempo), essa aba aqui é avisada e desconectada pelo servidor.
+    let sessionReplacedByAnotherTab = false;
+    socket.on('session-replaced', () => {
+      sessionReplacedByAnotherTab = true;
+      // Desliga a reconexão automática do socket.io — sem isso, essa aba tentaria
+      // se reconectar sozinha na hora seguinte, o que ia derrubar a sessão NOVA de
+      // volta, virando uma briga infinita entre as duas abas.
+      socket.io.opts.reconnection = false;
+      document.getElementById('session-replaced-overlay').classList.add('visible');
     });
 
     socket.on('connect', () => {
@@ -1057,6 +1082,10 @@
     // mais abaixo) — cada item já vem com seus próprios canais. Começa vazio: o
     // servidor manda a lista de verdade assim que a gente se registra.
     let servers = [];
+    // Guarda um pedido de troca de servidor que chegou ANTES da lista de servidores
+    // (raríssimo, mas por segurança) — ver socket.on('server-joined') e
+    // socket.on('my-servers').
+    let pendingServerSwitchId = null;
 
     // --- Cargos (Owner / Moderador / Membro / Guest) ---
     const WAITING_VOICE_ROOM = 'waiting-room';
@@ -1771,6 +1800,15 @@
       // mas por segurança contra qualquer chamada futura que mande a lista sem
       // canais).
       servers = list;
+
+      // Tinha um pedido de troca de servidor (criar/entrar) esperando a lista chegar?
+      if (pendingServerSwitchId && servers.some(s => s.id === pendingServerSwitchId)) {
+        const target = pendingServerSwitchId;
+        pendingServerSwitchId = null;
+        switchServer(target);
+        return;
+      }
+
       if (!servers.some(s => s.id === activeServerId)) {
         // Ainda não tínhamos escolhido um servidor (primeira vez), ou o que
         // estávamos vendo sumiu — volta pro padrão.
@@ -1787,6 +1825,21 @@
 
     socket.on('server-create-failed', ({ message }) => showToast(message || 'Não foi possível criar o servidor.'));
     socket.on('server-join-failed', ({ message }) => showToast(message || 'Não foi possível entrar nesse servidor.'));
+
+    // O servidor manda isso depois de criar/entrar num servidor com sucesso — troca
+    // pra ele de verdade. 'my-servers' sozinho só atualiza a LISTA; sem esse aviso
+    // explícito, a pessoa continuava vendo o servidor em que já estava antes.
+    socket.on('server-joined', ({ serverId }) => {
+      if (servers.some(s => s.id === serverId)) {
+        switchServer(serverId);
+        showToast('Você entrou no servidor!');
+      }
+      // Se a lista ainda não tiver chegado (raríssimo — 'my-servers' é mandado
+      // logo antes disso), guarda pra trocar assim que ela chegar.
+      else {
+        pendingServerSwitchId = serverId;
+      }
+    });
 
     // ---------- Criar / entrar em servidor ----------
     function openServerJoinCreateModal() {
