@@ -3618,6 +3618,15 @@
         // programa, não voz — afeta o modo/taxa do codec Opus escolhido.
         localStream.getAudioTracks().forEach(t => { t.contentHint = 'music'; });
 
+        // Avisa o WebRTC que o VÍDEO é conteúdo de tela (texto, ícones, janelas
+        // paradas) — não uma câmera com movimento constante. Sem isso, o codificador
+        // pode tratar por padrão como vídeo "de movimento" e dar prioridade a
+        // suavidade em vez de nitidez, borrando tudo que não está mudando quadro a
+        // quadro — exatamente o sintoma relatado: só a área perto do mouse (que está
+        // "mudando") fica nítida, o resto borra, e trocar de janela força uma
+        // atualização completa que corrige na hora (até desfocar de novo).
+        localStream.getVideoTracks().forEach(t => { t.contentHint = 'detail'; });
+
         const processAudioTrack = await processAudioTrackPromise;
 
         if (processAudioTrack) {
@@ -3746,6 +3755,13 @@
         const params = sender.getParameters();
         if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
         params.encodings[0].maxBitrate = STREAM_QUALITY_BITRATES[selectedStreamQuality] || STREAM_QUALITY_BITRATES.medium;
+        // Sob aperto de banda, o WebRTC por padrão prefere manter os quadros por
+        // segundo e vai reduzindo a nitidez/resolução escondido — péssimo pra
+        // transmissão de tela (texto/ícones ficam borrados). 'maintain-resolution'
+        // inverte essa prioridade: quando faltar banda, reduz os FPS primeiro, mas
+        // mantém a imagem nítida — o que importa muito mais pra leitura de tela do
+        // que fluidez de movimento.
+        params.encodings[0].degradationPreference = 'maintain-resolution';
         await sender.setParameters(params);
       } catch (e) { /* alguns navegadores recusam setParameters antes da 1ª negociação — sem problema, tenta de novo depois */ }
     }
