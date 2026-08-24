@@ -251,6 +251,14 @@ function isOwnerOfServer(socket, srv) {
 
 // Manda pro socket a lista dos servidores dos quais ele é membro (nunca inclui o
 // hash da senha — só se TEM senha ou não).
+// Nunca manda o hash da senha de uma sala de voz pro cliente — só se ELA TEM senha
+// ou não (hasPassword). O hash em si fica só aqui no servidor.
+function sanitizeChannelForClient(ch) {
+  if (!ch.passwordHash) return ch;
+  const { passwordHash, ...rest } = ch;
+  return { ...rest, hasPassword: true };
+}
+
 function sendMyServers(socket) {
   const username = socket.username;
   const mine = dspeakServers
@@ -261,7 +269,7 @@ function sendMyServers(socket) {
       hasPassword: !!srv.passwordHash,
       isOwner: isOwnerOfServer(socket, srv),
       inviteCode: isOwnerOfServer(socket, srv) ? srv.inviteCode : undefined, // só o dono vê/reusa o código
-      channels: channels.filter(c => c.serverId === srv.id)
+      channels: channels.filter(c => c.serverId === srv.id).map(sanitizeChannelForClient)
     }));
   socket.emit('my-servers', mine);
 }
@@ -525,6 +533,8 @@ io.on('connection', (socket) => {
       const userLimit = parseInt(data && data.userLimit, 10);
       channel.userLimit = (Number.isFinite(userLimit) && userLimit > 0) ? userLimit : 0; // 0 = sem limite
       channel.noAudio = !!(data && data.noAudio); // sala silenciosa (tipo "AFK")
+      const password = data && data.password ? String(data.password) : '';
+      channel.passwordHash = password ? hashServerPassword(password) : null; // mesma função de hash usada pra senha de servidor, serve igual aqui
     }
     channels.push(channel);
     saveChannels();
@@ -550,6 +560,12 @@ io.on('connection', (socket) => {
       if (data && Object.prototype.hasOwnProperty.call(data, 'noAudio')) {
         ch.noAudio = !!data.noAudio;
       }
+      if (data && data.removePassword) {
+        ch.passwordHash = null;
+      } else if (data && data.newPassword) {
+        ch.passwordHash = hashServerPassword(String(data.newPassword));
+      }
+      // Nem um nem outro: a senha atual (se tiver) fica como está.
     }
 
     saveChannels();
@@ -711,7 +727,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join-voice-room', (data) => {
-    let { channelId, username, avatarUrl } = data;
+    let { channelId, username, avatarUrl, password } = data;
 
     if (!voiceUsers[channelId]) voiceUsers[channelId] = [];
 
@@ -722,6 +738,18 @@ io.on('connection', (socket) => {
     if (!alreadyThere && limit > 0 && voiceUsers[channelId].length >= limit) {
       socket.emit('voice-room-full', { channelId, name: channelDef ? channelDef.name : channelId, limit });
       return;
+    }
+
+    // Sala de voz com senha — o dono do servidor não precisa digitar a própria
+    // senha; todo mundo mais precisa acertar ela pra entrar (a não ser que já
+    // esteja dentro, ex: reconexão de rede — não pede de novo nesse caso).
+    if (!alreadyThere && channelDef && channelDef.passwordHash) {
+      const srv = dspeakServers.find(s => s.id === channelDef.serverId);
+      const isBypassOwner = isOwnerOfServer(socket, srv);
+      if (!isBypassOwner && !verifyServerPassword(password, channelDef.passwordHash)) {
+        socket.emit('voice-room-wrong-password', { channelId, name: channelDef.name });
+        return;
+      }
     }
 
     // Tira a entrada antiga do MESMO socket (reentrada normal) e também qualquer
