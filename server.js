@@ -609,6 +609,35 @@ io.on('connection', (socket) => {
     socket.emit('server-joined', { serverId: id });
   });
 
+  // ---------- Editar servidor (nome e/ou senha) — só o dono DELE, e não vale pro
+  // servidor padrão 'dspeak' (ele é aberto pra todo mundo por definição, não tem
+  // dono próprio nem faz sentido ter senha) ----------
+  socket.on('rename-server', (data) => {
+    const serverId = data && data.serverId;
+    if (serverId === 'dspeak') return;
+    const srv = dspeakServers.find(s => s.id === serverId);
+    if (!srv || !isOwnerOfServer(socket, srv)) return;
+
+    const newName = String(data && data.name || '').trim().slice(0, 60);
+    if (newName) srv.name = newName;
+
+    if (data && data.removePassword) {
+      srv.passwordHash = null;
+    } else if (data && data.newPassword) {
+      srv.passwordHash = hashServerPassword(String(data.newPassword));
+    }
+    // Se nem removePassword nem newPassword vierem, a senha atual (se tiver
+    // alguma) fica como está — cobre o caso de só trocar o nome.
+
+    saveServers();
+
+    // Avisa todo mundo que já é membro — o nome pode ter mudado, o que aparece na
+    // sidebar de cada um.
+    for (const [, s] of io.sockets.sockets) {
+      if (s.username && isMemberOfServer(srv, s.username)) sendMyServers(s);
+    }
+  });
+
   // ---------- Entrar num servidor existente via link/código de convite ----------
   socket.on('join-server-by-invite', (data) => {
     if (!socket.username) return;
