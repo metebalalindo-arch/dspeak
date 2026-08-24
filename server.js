@@ -22,8 +22,51 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ---------- Pasta de dados persistentes ----------
+// IMPORTANTE: no Render (e na maioria dos serviços de hospedagem "sem estado"), a
+// pasta do projeto é recriada do ZERO a cada novo deploy — qualquer arquivo que não
+// veio do seu código (como os .json abaixo, com salas/mensagens/cargos/servidores)
+// simplesmente some junto. Pra esses dados sobreviverem a uma atualização, eles
+// precisam morar num "Disco Persistente" (Persistent Disk) do Render, que fica FORA
+// do ciclo de deploy.
+//
+// Como configurar (uma vez só):
+//   1. No painel do Render, no seu serviço, vai em "Disks" → "Add Disk".
+//   2. Escolhe um ponto de montagem, ex: /var/data (o Render cria a pasta sozinho).
+//   3. Nas variáveis de ambiente do serviço, define DATA_DIR = /var/data
+//   4. Faz um novo deploy — a partir daí, os dados ficam nesse disco e sobrevivem a
+//      qualquer atualização de código futura.
+// Se DATA_DIR não estiver definida (ex: rodando local no seu PC pra testar), os
+// dados continuam salvos dentro da própria pasta do projeto, como sempre foi.
+const DATA_DIR = process.env.DATA_DIR || __dirname;
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!process.env.DATA_DIR) {
+  console.log('[DSpeak] Nenhuma variável de ambiente DATA_DIR definida — salvando dados dentro da pasta do projeto (some a cada deploy no Render). Veja o comentário acima de "DATA_DIR" no código pra configurar um disco persistente.');
+} else {
+  console.log(`[DSpeak] Salvando dados persistentes em: ${DATA_DIR}`);
+}
+
+// Migração de uma vez só: se você ACABOU de configurar o disco persistente agora, ele
+// começa vazio — isso copia pra lá qualquer arquivo de dado que ainda esteja na pasta
+// antiga do projeto (de antes dessa mudança), pra não perder nada na primeira vez.
+// Depois da primeira vez, o disco novo já tem os arquivos, então isso não faz mais nada.
+function migrateOldDataFileIfNeeded(filename) {
+  if (DATA_DIR === __dirname) return; // sem disco persistente configurado — nada a migrar
+  const newPath = path.join(DATA_DIR, filename);
+  const oldPath = path.join(__dirname, filename);
+  if (!fs.existsSync(newPath) && fs.existsSync(oldPath)) {
+    try {
+      fs.copyFileSync(oldPath, newPath);
+      console.log(`[DSpeak] Migrado ${filename} da pasta antiga do projeto pro disco persistente.`);
+    } catch (e) {
+      console.error(`[DSpeak] Não consegui migrar ${filename} pro disco persistente:`, e);
+    }
+  }
+}
+['channels.json', 'servers.json', 'roles.json', 'messages.json'].forEach(migrateOldDataFileIfNeeded);
+
 // ---------- Upload de arquivos no chat (até 10MB, tipo o "clipzinho" do Discord) ----------
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 app.use('/uploads', express.static(UPLOADS_DIR));
 
@@ -69,7 +112,7 @@ const activeRoomStreams = {};
 // Antes, os canais só existiam localmente no navegador de cada pessoa: cada um via uma
 // lista diferente e tudo sumia ao dar F5. Agora o servidor é a fonte da verdade: guarda
 // em disco e manda a mesma lista pra todo mundo, sempre atualizada.
-const CHANNELS_FILE = path.join(__dirname, 'channels.json');
+const CHANNELS_FILE = path.join(DATA_DIR, 'channels.json');
 const WAITING_VOICE_ROOM = 'waiting-room';
 const WAITING_TEXT_ROOM = 'waiting-room-text';
 const DEFAULT_CHANNELS = [
@@ -136,7 +179,7 @@ saveChannels();
 // existia, que continua mandando só no servidor 'dspeak' padrão — pra não bagunçar
 // quem já usava esse sistema). Cada servidor pode ter senha (opcional, escolhida por
 // quem cria) e sempre tem um código de convite único pra gerar o link.
-const SERVERS_FILE = path.join(__dirname, 'servers.json');
+const SERVERS_FILE = path.join(DATA_DIR, 'servers.json');
 
 // O servidor 'dspeak' padrão sempre existiu implicitamente — todo mundo é membro dele
 // automaticamente (comportamento de sempre, sem convite/senha), e ele usa o sistema de
@@ -233,7 +276,7 @@ function generateServerId(name) {
 // Pra virar Owner, a pessoa digita "!owner SEU_CODIGO" em qualquer chat — sem precisar
 // ser o primeiro a se cadastrar (isso causava confusão em testes: uma conta de teste
 // qualquer virava Owner sem querer).
-const ROLES_FILE = path.join(__dirname, 'roles.json');
+const ROLES_FILE = path.join(DATA_DIR, 'roles.json');
 
 // IMPORTANTE: troque esse código (ou, melhor ainda, defina a variável de ambiente
 // OWNER_CLAIM_CODE no seu serviço de hospedagem) antes de divulgar o servidor —
@@ -306,7 +349,7 @@ function syncRoleIntoVoiceLists(usernameKey, newRole) {
 }
 
 // ---------- Histórico de chat persistido, com expiração de 7 dias ----------
-const MESSAGES_FILE = path.join(__dirname, 'messages.json');
+const MESSAGES_FILE = path.join(DATA_DIR, 'messages.json');
 const MESSAGE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
 
 let messages = {}; // channelId -> [{ room, message, user, avatarUrl, time, date, timestamp }]
