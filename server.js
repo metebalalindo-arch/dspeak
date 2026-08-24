@@ -73,10 +73,10 @@ const CHANNELS_FILE = path.join(__dirname, 'channels.json');
 const WAITING_VOICE_ROOM = 'waiting-room';
 const WAITING_TEXT_ROOM = 'waiting-room-text';
 const DEFAULT_CHANNELS = [
-  { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true },
-  { id: WAITING_TEXT_ROOM, name: 'sala-de-espera', type: 'text' },
-  { id: WAITING_VOICE_ROOM, name: 'Sala de Espera', type: 'voice' },
-  { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true }
+  { id: 'geral', name: 'geral', type: 'text', undeletable: true, locked: true, serverId: 'dspeak' },
+  { id: WAITING_TEXT_ROOM, name: 'sala-de-espera', type: 'text', serverId: 'dspeak' },
+  { id: WAITING_VOICE_ROOM, name: 'Sala de Espera', type: 'voice', serverId: 'dspeak' },
+  { id: 'lobby', name: 'Lobby', type: 'voice', undeletable: true, serverId: 'dspeak' }
 ];
 
 let channels = DEFAULT_CHANNELS;
@@ -93,6 +93,14 @@ try {
 // os canais fixos que estiverem faltando, sem mexer no resto que já existia.
 DEFAULT_CHANNELS.forEach(defCh => {
   if (!channels.some(c => c.id === defCh.id)) channels.push({ ...defCh });
+});
+
+// Migração: canais salvos ANTES do recurso de múltiplos servidores não têm
+// serverId — como antes só existia um servidor mesmo (o padrão), todo canal
+// "órfão" pertence a ele.
+let channelsMigrated = false;
+channels.forEach(ch => {
+  if (!ch.serverId) { ch.serverId = 'dspeak'; channelsMigrated = true; }
 });
 
 // O cargo Guest foi removido, então a Sala de Espera não trava mais ninguém — deixa
@@ -122,6 +130,103 @@ function saveChannels() {
   }
 }
 saveChannels();
+
+// ---------- Múltiplos servidores (tipo Discord) ----------
+// Quem cria um servidor novo vira Owner DELE (separado do Owner global único que já
+// existia, que continua mandando só no servidor 'dspeak' padrão — pra não bagunçar
+// quem já usava esse sistema). Cada servidor pode ter senha (opcional, escolhida por
+// quem cria) e sempre tem um código de convite único pra gerar o link.
+const SERVERS_FILE = path.join(__dirname, 'servers.json');
+
+// O servidor 'dspeak' padrão sempre existiu implicitamente — todo mundo é membro dele
+// automaticamente (comportamento de sempre, sem convite/senha), e ele usa o sistema de
+// Owner global já existente (roles.json), não um dono próprio.
+const DEFAULT_SERVER = {
+  id: 'dspeak',
+  name: 'DSPEAK SERVER',
+  ownerUsername: null, // null = usa o Owner global (roles.json), não um dono próprio
+  passwordHash: null,
+  inviteCode: null, // servidor padrão não precisa de convite — todo mundo já é membro
+  members: [] // vazio = todo mundo é considerado membro automaticamente (ver isMemberOfServer)
+};
+
+let dspeakServers = [DEFAULT_SERVER];
+try {
+  if (fs.existsSync(SERVERS_FILE)) {
+    const loaded = JSON.parse(fs.readFileSync(SERVERS_FILE, 'utf8'));
+    if (Array.isArray(loaded) && loaded.length > 0) dspeakServers = loaded;
+  }
+} catch (e) {
+  console.error('Não foi possível ler servers.json, usando os padrões.', e);
+}
+// Garante que o servidor padrão sempre existe, mesmo em arquivos salvos de versões
+// anteriores a esse recurso.
+if (!dspeakServers.some(s => s.id === 'dspeak')) dspeakServers.unshift(DEFAULT_SERVER);
+
+function saveServers() {
+  try {
+    fs.writeFileSync(SERVERS_FILE, JSON.stringify(dspeakServers, null, 2));
+  } catch (e) {
+    console.error('Não foi possível salvar servers.json', e);
+  }
+}
+saveServers();
+
+// Senha guardada como "salt:hash" (scrypt) — nunca em texto puro.
+function hashServerPassword(plain) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(plain), salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+function verifyServerPassword(plain, stored) {
+  if (!stored) return true; // sem senha configurada
+  const [salt, hash] = String(stored).split(':');
+  if (!salt || !hash) return false;
+  const candidate = crypto.scryptSync(String(plain || ''), salt, 64).toString('hex');
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(candidate, 'hex'));
+  } catch (e) {
+    return false;
+  }
+}
+
+function isMemberOfServer(srv, username) {
+  if (!srv) return false;
+  if (srv.id === 'dspeak') return true; // servidor padrão: todo mundo é membro
+  const key = keyOf(username);
+  return srv.ownerUsername === key || (srv.members || []).includes(key);
+}
+
+// Dono de um servidor específico: o servidor padrão usa o Owner GLOBAL (sistema já
+// existente, roles.json); servidores criados por usuários usam o ownerUsername
+// próprio deles.
+function isOwnerOfServer(socket, srv) {
+  if (!srv) return false;
+  if (srv.id === 'dspeak') return socket.role === 'owner';
+  return srv.ownerUsername === keyOf(socket.username);
+}
+
+// Manda pro socket a lista dos servidores dos quais ele é membro (nunca inclui o
+// hash da senha — só se TEM senha ou não).
+function sendMyServers(socket) {
+  const username = socket.username;
+  const mine = dspeakServers
+    .filter(srv => isMemberOfServer(srv, username))
+    .map(srv => ({
+      id: srv.id,
+      name: srv.name,
+      hasPassword: !!srv.passwordHash,
+      isOwner: isOwnerOfServer(socket, srv),
+      inviteCode: isOwnerOfServer(socket, srv) ? srv.inviteCode : undefined, // só o dono vê/reusa o código
+      channels: channels.filter(c => c.serverId === srv.id)
+    }));
+  socket.emit('my-servers', mine);
+}
+
+function generateServerId(name) {
+  const base = String(name || 'servidor').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'servidor';
+  return `${base}-${crypto.randomBytes(4).toString('hex')}`;
+}
 
 // ---------- Cargos (Owner / Moderador / Membro / Guest) ----------
 // Guest é travado na Sala de Espera até um Moderador ou Owner dar um cargo a ele.
@@ -254,8 +359,9 @@ io.on('connection', (socket) => {
     // entrar numa sala (o que aí sim disparava uma atualização).
     socket.emit('update-voice-users', voiceUsers);
 
-    // Manda a lista de canais atual (a mesma pra todo mundo, persistida em disco).
-    socket.emit('channels-sync', channels);
+    // Manda só os servidores dos quais essa pessoa é membro, cada um já com seus
+    // próprios canais — nunca a lista de canais de TODOS os servidores de todo mundo.
+    sendMyServers(socket);
   });
 
   // Atualiza apelido/avatar em tempo real pra todo mundo, sem precisar de F5.
@@ -337,15 +443,29 @@ io.on('connection', (socket) => {
     socket.emit('channel-history', { room: channelId, messages: messages[channelId] || [] });
   });
 
-  // ---------- Criar / renomear / excluir canais (só o Owner pode) ----------
+  // Manda a lista de canais atualizada só pra quem é membro DESSE servidor — não pra
+  // todo mundo (cada pessoa só deve ver os canais dos servidores em que está).
+  function broadcastChannelsSync(serverId) {
+    const srv = dspeakServers.find(s => s.id === serverId);
+    const payload = { serverId, channels: channels.filter(c => c.serverId === serverId) };
+    for (const [, s] of io.sockets.sockets) {
+      if (s.username && isMemberOfServer(srv, s.username)) s.emit('channels-sync', payload);
+    }
+  }
+
+  // ---------- Criar / renomear / excluir canais (só o dono DAQUELE servidor pode) ----------
   socket.on('create-channel', (data) => {
-    if (socket.role !== 'owner') return;
+    const serverId = data && data.serverId;
+    const srv = dspeakServers.find(s => s.id === serverId);
+    if (!srv || !isOwnerOfServer(socket, srv)) return;
     const name = String(data && data.name || '').trim();
     const type = data && data.type;
     if (!name || (type !== 'text' && type !== 'voice')) return;
 
-    const id = name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now();
-    const channel = { id, name, type };
+    // Prefixado com o serverId — garante que o id do canal é único mesmo entre
+    // servidores diferentes (dois servidores podem ter um canal chamado "geral").
+    const id = `${serverId}__${name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+    const channel = { id, name, type, serverId };
     if (type === 'voice') {
       const userLimit = parseInt(data && data.userLimit, 10);
       channel.userLimit = (Number.isFinite(userLimit) && userLimit > 0) ? userLimit : 0; // 0 = sem limite
@@ -353,15 +473,16 @@ io.on('connection', (socket) => {
     }
     channels.push(channel);
     saveChannels();
-    io.emit('channels-sync', channels);
+    broadcastChannelsSync(serverId);
   });
 
   // Renomeia e/ou ajusta limite de pessoas e "sala silenciosa" de um canal.
   socket.on('rename-channel', (data) => {
-    if (socket.role !== 'owner') return;
     const channelId = data && data.channelId;
     const ch = channels.find(c => c.id === channelId);
     if (!ch) return;
+    const srv = dspeakServers.find(s => s.id === ch.serverId);
+    if (!isOwnerOfServer(socket, srv)) return;
 
     const newName = String(data && data.newName || '').trim();
     if (newName && !ch.locked) ch.name = newName; // canais travados (ex: "geral") não podem ser renomeados
@@ -377,20 +498,86 @@ io.on('connection', (socket) => {
     }
 
     saveChannels();
-    io.emit('channels-sync', channels);
+    broadcastChannelsSync(ch.serverId);
   });
 
   socket.on('delete-channel', (channelId) => {
-    if (socket.role !== 'owner') return;
     const ch = channels.find(c => c.id === channelId);
     if (!ch || ch.undeletable) return; // "geral" e "Lobby" nunca podem ser excluídos
-    if (channels.length <= 1) return;
+    const srv = dspeakServers.find(s => s.id === ch.serverId);
+    if (!isOwnerOfServer(socket, srv)) return;
+    if (channels.filter(c => c.serverId === ch.serverId).length <= 1) return;
 
     channels = channels.filter(c => c.id !== channelId);
     delete messages[channelId];
     saveChannels();
     saveMessages();
-    io.emit('channels-sync', channels);
+    broadcastChannelsSync(ch.serverId);
+  });
+
+  // ---------- Criar um servidor novo (só o Owner GLOBAL pode; o criador vira Owner
+  // DELE também, mas quem pode criar continua restrito, pra não virar bagunça de
+  // servidor toda hora) ----------
+  socket.on('create-server', (data) => {
+    if (!socket.username) return;
+    if (socket.role !== 'owner') {
+      socket.emit('server-create-failed', { message: 'Só o Owner pode criar servidores novos.' });
+      return;
+    }
+    const name = String(data && data.name || '').trim().slice(0, 60);
+    if (!name) { socket.emit('server-create-failed', { message: 'Digite um nome pra esse servidor.' }); return; }
+    const password = data && data.password ? String(data.password) : '';
+
+    const id = generateServerId(name);
+    const srv = {
+      id,
+      name,
+      ownerUsername: socket.usernameKey,
+      passwordHash: password ? hashServerPassword(password) : null,
+      inviteCode: crypto.randomBytes(8).toString('hex'),
+      members: [socket.usernameKey]
+    };
+    dspeakServers.push(srv);
+    saveServers();
+
+    // Canais padrão desse servidor novo — mesma ideia do 'dspeak', só que dessa vez
+    // pertencendo só a ele.
+    const generalId = `${id}__geral`;
+    const lobbyId = `${id}__lobby`;
+    channels.push(
+      { id: generalId, name: 'geral', type: 'text', undeletable: true, locked: false, serverId: id },
+      { id: lobbyId, name: 'Lobby', type: 'voice', undeletable: true, serverId: id }
+    );
+    saveChannels();
+
+    sendMyServers(socket);
+  });
+
+  // ---------- Entrar num servidor existente via link/código de convite ----------
+  socket.on('join-server-by-invite', (data) => {
+    if (!socket.username) return;
+    const inviteCode = String(data && data.inviteCode || '').trim();
+    const password = data && data.password ? String(data.password) : '';
+    const srv = dspeakServers.find(s => s.inviteCode === inviteCode);
+    if (!srv) { socket.emit('server-join-failed', { message: 'Link de convite inválido ou expirado.' }); return; }
+
+    if (isMemberOfServer(srv, socket.username)) {
+      // Já é membro — só reenvia a lista (cobre o caso de clicar num link de convite
+      // de um servidor que a pessoa já está).
+      sendMyServers(socket);
+      return;
+    }
+
+    if (srv.passwordHash && !verifyServerPassword(password, srv.passwordHash)) {
+      socket.emit('server-join-failed', { message: 'Senha incorreta.' });
+      return;
+    }
+
+    srv.members = srv.members || [];
+    if (!srv.members.includes(socket.usernameKey)) srv.members.push(socket.usernameKey);
+    saveServers();
+
+    sendMyServers(socket);
   });
 
   // ---------- Gestão de cargos ----------
@@ -468,9 +655,18 @@ io.on('connection', (socket) => {
     });
     // O socket antigo (se ainda estiver de pé, só não tinha caído de vez ainda) é
     // desconectado de verdade agora — libera na hora, em vez de deixar ele pendurado
-    // até o pingTimeout, e dispara a limpeza normal de 'disconnect' pra ele (que já
-    // tira ele de activeRoomStreams etc.).
+    // até o pingTimeout. Também já limpamos activeRoomStreams e avisamos quem estava
+    // assistindo NA HORA (não esperamos o evento de 'disconnect' dele disparar
+    // sozinho depois — se a pessoa fechou o app sem uma desconexão "limpa", por
+    // exemplo, isso podia demorar ou nem disparar direito, deixando quem assistia
+    // travado até dar F5).
     staleSocketIds.forEach(staleId => {
+      Object.keys(activeRoomStreams).forEach(chId => {
+        if (activeRoomStreams[chId] && activeRoomStreams[chId].includes(staleId)) {
+          activeRoomStreams[chId] = activeRoomStreams[chId].filter(id => id !== staleId);
+          io.to(chId).emit('user-stopped-streaming', staleId);
+        }
+      });
       const staleSocket = io.sockets.sockets.get(staleId);
       if (staleSocket) staleSocket.disconnect(true);
     });
