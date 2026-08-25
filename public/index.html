@@ -294,6 +294,10 @@
     .ping-icon { width: 7px; height: 7px; background: #00ffcc; border-radius: 50%; display: inline-block; box-shadow: 0 0 6px #00ffcc; }
 
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(6, 7, 10, 0.88); backdrop-filter: blur(8px); z-index: 1500; justify-content: center; align-items: center; }
+    /* Sempre por cima de QUALQUER outro modal (ex: aberto de dentro do modal de
+       criar/editar servidor) — sem isso, dependendo de qual modal vem primeiro no
+       HTML, esse acabava ficando escondido atrás do outro. */
+    #avatar-crop-modal { z-index: 2000; }
     .modal { background: #13151b; width: 440px; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 25px rgba(255,85,0,0.2); position: relative; border: 1px solid rgba(255, 85, 0, 0.3); }
     .modal-close-btn { position: absolute; top: 16px; right: 16px; background: transparent; border: none; color: #8a8f9d; font-size: 18px; cursor: pointer; z-index: 10; }
     .modal-close-btn:hover { color: #ff5500; }
@@ -343,6 +347,7 @@
     .sensitivity-slider { width: 100%; accent-color: #ff5500; cursor: pointer; }
 
     .shortcut-key-badge { background: #181b24; border: 1px solid #ff5500; color: #ff5500; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; width: fit-content; }
+    .shortcut-key-badge.capturing { background: rgba(255,85,0,0.15); animation: welcomeGlowPulse 1s ease-in-out infinite; }
 
     .settings-footer-bar { padding: 12px 28px; background: #0f1117; border-top: 1px solid rgba(255, 85, 0, 0.15); display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-shrink: 0; }
     
@@ -767,16 +772,16 @@
 
             <div id="ptt-key-container" style="display: none;" class="modal-field">
               <label>Tecla de Ativação (Push-to-Talk)</label>
-              <div class="shortcut-key-badge" id="ptt-key-display">Espaço (Space)</div>
+              <div class="shortcut-key-badge" id="ptt-key-display" onclick="startPttKeyCapture()" style="cursor: pointer;" title="Clica pra trocar a tecla">Espaço (Space)</div>
             </div>
 
             <div class="opt-sec-label">VOLUME & TESTE DO MICROFONE</div>
             <div class="mic-test-container">
               <div style="display: flex; justify-content: space-between; font-size: 11px; color: #8a8f9d; font-weight: bold;">
                 <span>Volume de Entrada</span>
-                <span id="mic-sens-value-text">Volume: 80%</span>
+                <span id="mic-sens-value-text">Volume: 50%</span>
               </div>
-              <input type="range" min="0" max="100" value="80" class="sensitivity-slider" id="mic-sens-slider" oninput="updateMicVolume(this.value)" />
+              <input type="range" min="0" max="100" value="50" class="sensitivity-slider" id="mic-sens-slider" oninput="updateMicVolume(this.value)" />
               
               <div style="font-size: 11px; color: #8a8f9d; font-weight: bold; margin-top: 2px;">Sinal de Entrada (Sensibilidade)</div>
               <div class="mic-test-bar-wrapper">
@@ -1073,6 +1078,21 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="dm-modal">
+    <div class="modal" style="width: 420px; height: 560px; padding: 0; display: flex; flex-direction: column; overflow: hidden;">
+      <div style="display:flex; align-items:center; gap:10px; padding: 14px 16px; border-bottom: 1px solid rgba(255,85,0,0.15); flex-shrink: 0;">
+        <div class="avatar-edit-preview" id="dm-modal-avatar" style="width:34px; height:34px; font-size:14px; box-shadow:none; border-width:1px;"></div>
+        <div style="font-weight:700; font-size:15px;" id="dm-modal-username">Nome</div>
+        <button class="modal-close-btn" onclick="closeModal('dm-modal')" style="position:static; margin-left:auto;">✕</button>
+      </div>
+      <div id="dm-messages-list" style="flex:1; overflow-y:auto; padding: 12px 16px;"></div>
+      <div style="display:flex; gap:8px; padding: 10px 12px; border-top: 1px solid rgba(255,85,0,0.15); flex-shrink: 0;">
+        <input type="text" id="dm-input" placeholder="Mensagem privada..." style="flex:1;" onkeypress="if(event.key==='Enter') sendDmMessage()" />
+        <button class="btn-create" onclick="sendDmMessage()" style="padding: 8px 16px;">Enviar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="role-modal">
     <div class="modal" style="width: 340px;">
       <button class="modal-close-btn" onclick="closeModal('role-modal')">✕</button>
@@ -1262,12 +1282,89 @@
     let selectedStreamQuality = "medium"; // low | medium | high — controla o bitrate da transmissão
     const STREAM_QUALITY_BITRATES = { low: 2_500_000, medium: 6_000_000, high: 12_000_000 };
     let selectedInputMode = "vad";
+    // Item 9: Push-to-Talk — a tecla configurada (código do evento de teclado, ex:
+    // "Space", "KeyF") e se ela está sendo segurada NESSE momento. Guardado no
+    // localStorage pra lembrar da escolha entre sessões.
+    let pttKey = localStorage.getItem('dspeak_ptt_key') || 'Space';
+    let pttKeyHeld = false;
+    let capturingPttKey = false;
+
+    function pttKeyDisplayName(code) {
+      if (code === 'Space') return 'Espaço (Space)';
+      if (code.startsWith('Key')) return code.slice(3);
+      if (code.startsWith('Digit')) return code.slice(5);
+      if (code.startsWith('Control')) return 'Ctrl';
+      if (code.startsWith('Shift')) return 'Shift';
+      if (code.startsWith('Alt')) return 'Alt';
+      return code;
+    }
+
+    function startPttKeyCapture() {
+      capturingPttKey = true;
+      const badge = document.getElementById('ptt-key-display');
+      if (badge) { badge.textContent = 'Pressione uma tecla...'; badge.classList.add('capturing'); }
+    }
+
+    // Ouve o teclado o tempo todo (não só quando as configurações estão abertas) —
+    // precisa funcionar em qualquer tela do app pro Push-to-Talk valer a pena.
+    window.addEventListener('keydown', (e) => {
+      if (capturingPttKey) {
+        e.preventDefault();
+        pttKey = e.code;
+        localStorage.setItem('dspeak_ptt_key', pttKey);
+        capturingPttKey = false;
+        const badge = document.getElementById('ptt-key-display');
+        if (badge) { badge.textContent = pttKeyDisplayName(pttKey); badge.classList.remove('capturing'); }
+        return;
+      }
+      // Ignora se a pessoa estiver digitando em algum campo de texto (chat, nome de
+      // canal, etc.) — sem isso, apertar Espaço pra digitar uma mensagem ativaria o
+      // microfone sem querer.
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement && document.activeElement.isContentEditable)) return;
+
+      if (selectedInputMode === 'ptt' && e.code === pttKey && connectedVoiceChannel) {
+        e.preventDefault();
+        pttKeyHeld = true;
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === pttKey) pttKeyHeld = false;
+    });
+    // Se a janela perder o foco (trocar de programa) enquanto a tecla estava
+    // segurada, o keyup pode nunca chegar — sem isso, o microfone ficava "preso"
+    // aberto pra sempre.
+    window.addEventListener('blur', () => { pttKeyHeld = false; });
+
+    // ---------- Item 3: desconexão automática por ausência (AFK) ----------
+    // Só vale enquanto conectado numa sala de voz — depois de um tempo sem
+    // NENHUMA atividade (mouse, teclado, clique, ou falar de verdade no
+    // microfone), desconecta da sala sozinho, com um aviso explicando o motivo.
+    // Não desconecta do app/servidor inteiro — só sai da sala de voz, como pedido.
+    const AFK_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutos sem atividade
+    let lastActivityTime = Date.now();
+    function markActivity() { lastActivityTime = Date.now(); }
+    ['mousemove', 'mousedown', 'keydown', 'click', 'wheel', 'touchstart'].forEach(evt => {
+      window.addEventListener(evt, markActivity, { passive: true });
+    });
+    setInterval(() => {
+      if (!connectedVoiceChannel) return;
+      if (Date.now() - lastActivityTime >= AFK_TIMEOUT_MS) {
+        const channelName = (() => {
+          const srv = servers.find(s => s.id === activeServerId);
+          const ch = srv && srv.channels.find(c => c.id === connectedVoiceChannel);
+          return ch ? ch.name : 'sala de voz';
+        })();
+        disconnectVoice();
+        showToast(`Você foi desconectado de "${channelName}" por ficar ausente.`);
+      }
+    }, 30 * 1000); // confere a cada 30s — não precisa ser mais frequente que isso
 
     let audioContext = null;
     let micAnalyser = null;
     let testMicStream = null;
     let micGainNode = null;
-    let currentMicVolume = 0.8;
+    let currentMicVolume = 0.5;
 
     // ---------- Supressor de ruído extra: noise gate no microfone real ----------
     let micProcessingCtx = null;
@@ -1348,6 +1445,11 @@
       mute: () => playChimeSequence([{ at: 0, freq: 349, dur: 0.11, gain: 0.10 }]),
       // Uma nota curta e mais aguda — "desmutei".
       unmute: () => playChimeSequence([{ at: 0, freq: 587, dur: 0.11, gain: 0.10 }]),
+      // Duas notas curtas e suaves — mensagem privada nova chegando.
+      message: () => playChimeSequence([
+        { at: 0,    freq: 660, dur: 0.09, gain: 0.09 },
+        { at: 0.07, freq: 880, dur: 0.12, gain: 0.09 }
+      ]),
       // Três notas subindo rápido (acorde arpejado) — início de transmissão, chama atenção.
       streamStart: () => playChimeSequence([
         { at: 0,     freq: 523, dur: 0.10, gain: 0.11 },
@@ -1478,6 +1580,16 @@
     // WeakMap por chave ser a própria ligação (pc) — quando ela deixa de existir, a
     // entrada some sozinha, sem precisar limpar manualmente em cada pc.close().
     const screenAudioSenderByPc = new WeakMap();
+    // Quem REALMENTE pediu pra assistir minha transmissão (socketIds) — populado só
+    // em 'watch-stream-requested'. Sem isso, ensureProcessAudioTrackAttached()
+    // mandava faixa de vídeo/áudio de tela pra QUALQUER pessoa com uma ligação
+    // aberta com a gente (ou seja, todo mundo na sala de voz, mesmo quem nunca
+    // clicou em "Assistir") — obrigando a ligação de voz dessas pessoas a
+    // renegociar do nada toda vez que uma transmissão começava/trocava de janela,
+    // o que podia engasgar o microfone delas por um instante. Entradas velhas (de
+    // gente cuja ligação já fechou) são inofensivas — são filtradas na hora de usar,
+    // checando se peerConnections[id] ainda existe.
+    const myStreamWatchers = new Set();
     // Mesma ideia, só que pro VÍDEO — cada troca de janela chamava getDisplayMedia()
     // de novo, criando uma faixa de vídeo nova (com ID diferente), o que fazia
     // addScreenTracksToPeer tratar como faixa "nova" e criar mais um sender, obrigando
@@ -1711,6 +1823,8 @@
       tempAvatarUrl = userAvatarUrl;
       document.getElementById('new-nickname-input').value = username;
       updateModalAvatarPreview();
+      const pttBadge = document.getElementById('ptt-key-display');
+      if (pttBadge) pttBadge.textContent = pttKeyDisplayName(pttKey);
       switchSettingsTab(tab);
       openModal('settings-center-modal');
     }
@@ -2593,6 +2707,7 @@
                 <div style="display:flex; align-items:center; gap:8px;">
                   ${voiceStatusIconsHtml(u, isSelf)}
                   <div class="voice-user-manage-controls">
+                    ${isSelf ? '' : `<button class="user-volume-btn" title="Mensagem privada" onclick="event.stopPropagation(); openDmWith('${String(u.name).replace(/'/g, "\\'")}', ${u.avatarUrl ? `'${u.avatarUrl}'` : 'null'})">💬</button>`}
                     ${voiceVolumeBtnHtml(u, isSelf)}
                     ${roleManageBtnHtml(u, isSelf)}
                   </div>
@@ -2603,6 +2718,9 @@
               // acionou algum menu/drag estiver em uso, pra não atrapalhar cliques.
               sub.addEventListener('mouseenter', () => showUserHoverTooltip(sub, u, isSelf, isLive));
               sub.addEventListener('mouseleave', hideUserHoverTooltip);
+              // Duplo clique no nome também abre o chat privado — mesmo jeito que
+              // foi pedido, "clicando duas vezes abre o chat".
+              if (!isSelf) sub.addEventListener('dblclick', () => openDmWith(u.name, u.avatarUrl || null));
               sublist.appendChild(sub);
             });
             wrapper.appendChild(sublist);
@@ -2647,6 +2765,34 @@
     // de saída. Enquanto o volume estiver abaixo do limiar (ruído de ambiente, teclado, etc.),
     // o ganho fica quase zerado; assim que detecta fala, abre rápido. Segura um pouquinho
     // aberto depois de parar de falar (HOLD_MS) pra não cortar o final da palavra.
+    // ---------- RNNoise (cancelamento de ruído por rede neural) ----------
+    // Mesma categoria de tecnologia que o Krisp usa (rede neural rodando local,
+    // sem mandar áudio pra nenhum servidor) — só que essa aqui (RNNoise) é de
+    // código aberto e gratuita. Carregada da CDN (jsdelivr) uma vez só por sessão
+    // da página — reaproveitada toda vez que o microfone reinicia depois disso,
+    // sem precisar baixar de novo. Fica isolado aqui, no processamento do
+    // MICROFONE — nunca encosta na parte de áudio de tela/transmissão.
+    let rnnoiseWasmBinaryPromise = null;
+    let rnnoiseWorkletRegisteredCtx = null; // qual AudioContext já tem o módulo do worklet registrado
+
+    async function ensureRnnoiseReady(ctx) {
+      if (!rnnoiseWasmBinaryPromise) {
+        rnnoiseWasmBinaryPromise = (async () => {
+          const mod = await import('https://cdn.jsdelivr.net/npm/@sapphi-red/web-noise-suppressor@0.4.0/dist/index.js');
+          const wasmBinary = await mod.loadRnnoise({
+            url: 'https://cdn.jsdelivr.net/npm/@sapphi-red/web-noise-suppressor@0.4.0/dist/rnnoise.wasm'
+          });
+          return { mod, wasmBinary };
+        })();
+      }
+      const { mod, wasmBinary } = await rnnoiseWasmBinaryPromise;
+      if (rnnoiseWorkletRegisteredCtx !== ctx) {
+        await ctx.audioWorklet.addModule('https://cdn.jsdelivr.net/npm/@sapphi-red/web-noise-suppressor@0.4.0/dist/rnnoiseWorklet.js');
+        rnnoiseWorkletRegisteredCtx = ctx;
+      }
+      return new mod.RnnoiseWorkletNode(ctx, { wasmBinary, maxChannels: 1 });
+    }
+
     function setupMicProcessing(rawStream) {
       teardownMicProcessing();
       try {
@@ -2655,13 +2801,42 @@
         micGateGainNode = micProcessingCtx.createGain();
         micGateGainNode.gain.value = 0.05;
         micDestNode = micProcessingCtx.createMediaStreamDestination();
+
+        // Ponto onde o portão de ruído (gate) e o medidor de nível vão "escutar" —
+        // normalmente a própria voz crua, mas passa a ser a voz JÁ LIMPA pelo
+        // RNNoise assim que ele terminar de carregar (ver mais abaixo), o que deixa
+        // o gate ainda mais preciso (ruído de fundo já removido antes de medir).
+        let gateInputNode = micSourceNode;
+
         micSourceNode.connect(micGateGainNode);
         micGateGainNode.connect(micDestNode);
 
         const analyser = micProcessingCtx.createAnalyser();
         analyser.fftSize = 512;
-        micSourceNode.connect(analyser);
+        gateInputNode.connect(analyser);
         const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const thisCtx = micProcessingCtx; // guarda a referência — se o mic reiniciar de novo antes disso terminar, não mexe no contexto errado
+        ensureRnnoiseReady(thisCtx).then((rnnoiseNode) => {
+          if (micProcessingCtx !== thisCtx || thisCtx.state === 'closed') {
+            // O microfone já reiniciou de novo (ou foi desligado) enquanto isso
+            // carregava — descarta esse resultado, não se conecta a nada.
+            try { rnnoiseNode.disconnect(); } catch (e) {}
+            return;
+          }
+          // Encaixa o RNNoise ENTRE o microfone cru e o portão de ruído — troca a
+          // conexão direta que já tínhamos feito acima por uma passando pela
+          // limpeza primeiro.
+          micSourceNode.disconnect(micGateGainNode);
+          micSourceNode.connect(rnnoiseNode);
+          rnnoiseNode.connect(micGateGainNode);
+          gateInputNode = rnnoiseNode;
+          analyser.disconnect();
+          gateInputNode.connect(analyser);
+          console.log('[Mic] RNNoise carregado — cancelamento de ruído por rede neural ativo.');
+        }).catch((err) => {
+          console.warn('[Mic] Não consegui carregar o RNNoise — seguindo só com o portão de ruído normal.', err);
+        });
 
         // Foca a leitura de volume só na faixa de frequência da VOZ humana (~200Hz a
         // ~3500Hz) — som de tecla batendo é um estalo mais agudo/seco, com bastante
@@ -2686,6 +2861,31 @@
 
         const tick = () => {
           if (!micProcessingCtx || micProcessingCtx.state === 'closed') return;
+
+          // Modo "Transmissão Contínua": microfone sempre aberto, sem gate nenhum.
+          if (selectedInputMode === 'continuous') {
+            if (micGateGainNode.gain.value !== 1) {
+              micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
+              micGateGainNode.gain.linearRampToValueAtTime(1, micProcessingCtx.currentTime + 0.03);
+            }
+            noiseGateRafId = requestAnimationFrame(tick);
+            return;
+          }
+
+          // Modo "Pressionar para Falar": ignora a detecção automática de voz por
+          // completo — só reflete se a tecla configurada está sendo segurada agora
+          // (pttKeyHeld, controlado pelos listeners de teclado lá embaixo).
+          if (selectedInputMode === 'ptt') {
+            const targetGain = pttKeyHeld ? 1 : GATE_CLOSED_GAIN;
+            if (Math.abs(micGateGainNode.gain.value - targetGain) > 0.01) {
+              micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
+              micGateGainNode.gain.linearRampToValueAtTime(targetGain, micProcessingCtx.currentTime + 0.03);
+            }
+            noiseGateRafId = requestAnimationFrame(tick);
+            return;
+          }
+
+          // Modo "Detecção de Voz" (padrão) — o portão automático de sempre.
           analyser.getByteFrequencyData(data);
           let sum = 0;
           for (let i = voiceLowBin; i <= voiceHighBin; i++) sum += data[i];
@@ -2704,6 +2904,7 @@
                 gateOpen = true;
                 micGateGainNode.gain.cancelScheduledValues(micProcessingCtx.currentTime);
                 micGateGainNode.gain.linearRampToValueAtTime(1, micProcessingCtx.currentTime + 0.06);
+                markActivity(); // falando de verdade conta como presença, mesmo sem tocar no mouse/teclado
               }
             }
           } else {
@@ -2784,7 +2985,7 @@
       }
       el.srcObject = stream;
       el.muted = isDeafened || autoMutedForStreamAudio;
-      el.volume = userVolumes[targetSocketId] !== undefined ? userVolumes[targetSocketId] : 1;
+      el.volume = userVolumes[targetSocketId] !== undefined ? userVolumes[targetSocketId] : 0.5;
       if (autoMutedForStreamAudio) el.pause();
       if (el.setSinkId && selectedSpeakerId) el.setSinkId(selectedSpeakerId).catch(() => {});
       setupSpeakingDetection(stream, targetSocketId);
@@ -2946,6 +3147,7 @@
 
     socket.on('watch-stream-requested', (data) => {
       console.log(`[Stream] ${data.requesterSocketId} pediu pra assistir. localStream existe? ${!!localStream}`);
+      myStreamWatchers.add(data.requesterSocketId);
       // Só faz sentido responder se estivermos realmente transmitindo agora.
       if (!localStream) return;
       const pc = createPeerConnection(data.requesterSocketId);
@@ -3046,11 +3248,35 @@
         optionsWrap.appendChild(pullBtn);
       }
 
+      // Item 4 (pedido do usuário): Owner/Moderador conseguem expulsar alguém da
+      // sala de voz em que está agora — mesma regra de quem pode mexer em quem do
+      // "Puxar" acima (Moderador não expulsa Owner).
+      const canKick = myRole === 'owner' || (myRole === 'moderator' && targetRole !== 'owner');
+      if (canKick) {
+        const kickBtn = document.createElement('button');
+        kickBtn.className = 'role-pull-btn';
+        kickBtn.style.background = 'rgba(255,0,60,0.12)';
+        kickBtn.style.color = '#ff3c5f';
+        kickBtn.style.borderColor = 'rgba(255,0,60,0.3)';
+        kickBtn.textContent = '🚫 Expulsar da sala de voz';
+        kickBtn.onclick = () => kickUserFromVoice(targetSocketId, targetUsername);
+        optionsWrap.appendChild(kickBtn);
+      }
+
       openModal('role-modal');
     }
 
     function giveRole(targetUsername, newRole) {
       socket.emit('assign-role', { targetUsername, newRole });
+      closeModal('role-modal');
+    }
+
+    // Item 4: expulsa alguém da sala de voz em que está agora (não é um banimento
+    // permanente — a pessoa continua no servidor, só sai dessa sala de voz e
+    // precisa entrar de novo se quiser).
+    function kickUserFromVoice(targetSocketId, targetUsername) {
+      if (!confirm(`Expulsar "${targetUsername}" da sala de voz atual?`)) return;
+      socket.emit('kick-user-from-voice', { targetSocketId });
       closeModal('role-modal');
     }
 
@@ -3086,6 +3312,14 @@
 
     socket.on('owner-claim-failed', () => {
       showToast('Código incorreto — você continua com o cargo atual.');
+    });
+
+    // Item 4: fomos expulsos da sala de voz por um Owner/Moderador.
+    socket.on('kicked-from-voice', () => {
+      if (connectedVoiceChannel) {
+        disconnectVoice();
+        showToast('Você foi expulso da sala de voz por um Moderador/Owner.');
+      }
     });
 
     socket.on('voice-room-redirect', (data) => {
@@ -3341,7 +3575,7 @@
     function openUserVolumePopover(e, socketId, name) {
       userVolumePopoverTarget = socketId;
       const pop = document.getElementById('user-volume-popover');
-      const currentVol = userVolumes[socketId] !== undefined ? userVolumes[socketId] : 1;
+      const currentVol = userVolumes[socketId] !== undefined ? userVolumes[socketId] : 0.5;
 
       document.getElementById('uvp-username').textContent = name;
       document.getElementById('uvp-slider').value = Math.round(currentVol * 100);
@@ -4134,7 +4368,7 @@
             if (deviceTrack) {
               deviceTrack.contentHint = 'music'; // afeta o modo/taxa do codec Opus, à parte dos constraints de AEC/NS/AGC acima
               localStream.addTrack(deviceTrack);
-              const watchingPeerIds2 = Object.keys(peerConnections);
+              const watchingPeerIds2 = Array.from(myStreamWatchers).filter(id => peerConnections[id]);
               if (watchingPeerIds2.length > 0) {
                 console.log(`[ProcessAudio] Avisando ${watchingPeerIds2.length} conexão(ões) já aberta(s) sobre o dispositivo de áudio extra.`);
                 watchingPeerIds2.forEach(id => addScreenTracksToPeer(peerConnections[id]));
@@ -4170,6 +4404,7 @@
       // via onnegotiationneeded). Não fecha a conexão: ela pode ainda estar sendo usada
       // para a voz normal ou para RECEBER a tela de outra pessoa que continua transmitindo.
       Object.values(peerConnections).forEach(pc => removeScreenTracksFromPeer(pc));
+      myStreamWatchers.clear(); // ninguém mais está assistindo, já que paramos de vez
 
       if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
       removeScreenStream(username);
@@ -4342,7 +4577,10 @@
       if (localStream.getAudioTracks().includes(track)) return true; // já estava
       console.log('[ProcessAudio] Garantindo que a faixa de áudio está no localStream e avisando quem já está assistindo.');
       localStream.addTrack(track);
-      const watchingPeerIds = Object.keys(peerConnections);
+      // Só quem REALMENTE pediu pra assistir — não todo mundo com uma ligação
+      // aberta com a gente (isso incluía gente só de bate-papo por voz, que nunca
+      // deveria ter a ligação dela mexida por causa da nossa transmissão).
+      const watchingPeerIds = Array.from(myStreamWatchers).filter(id => peerConnections[id]);
       if (watchingPeerIds.length > 0) {
         console.log(`[ProcessAudio] Avisando ${watchingPeerIds.length} conexão(ões) já aberta(s) sobre a faixa de áudio de processo.`);
         watchingPeerIds.forEach(id => addScreenTracksToPeer(peerConnections[id]));
@@ -4724,7 +4962,10 @@
         const isOwnPreview = (userKey === username);
         const streamSocketId = activeStreams[userKey].socketId;
         const savedVolume = userVolumes[streamSocketId] !== undefined ? userVolumes[streamSocketId] : 1;
-        const savedMuted = userMuted[streamSocketId] !== undefined ? userMuted[streamSocketId] : false;
+        // Item 6 (pedido do usuário): toda live nova começa MUTADA por padrão — a
+        // pessoa que assiste precisa clicar pra desmutar. Antes disso, o padrão era
+        // começar com som, o que pegava todo mundo de surpresa.
+        const savedMuted = userMuted[streamSocketId] !== undefined ? userMuted[streamSocketId] : true;
 
         const video = document.createElement('video');
         video.autoplay = true;
@@ -5115,6 +5356,107 @@
       clearPendingAttachment();
     }
 
+    // ---------- Mensagens privadas (DM) ----------
+    function openDmWith(targetUsername, targetAvatarUrl) {
+      currentDmTarget = targetUsername;
+      const key = targetUsername.toLowerCase();
+
+      document.getElementById('dm-modal-username').textContent = targetUsername;
+      const avatarEl = document.getElementById('dm-modal-avatar');
+      if (targetAvatarUrl) {
+        avatarEl.style.backgroundImage = `url(${targetAvatarUrl})`;
+        avatarEl.textContent = '';
+      } else {
+        avatarEl.style.backgroundImage = 'none';
+        avatarEl.style.background = getUserAvatarGradient(targetUsername);
+        avatarEl.textContent = targetUsername.charAt(0).toUpperCase();
+      }
+
+      renderDmMessagesFromCache(key);
+      openModal('dm-modal');
+      socket.emit('get-dm-history', targetUsername); // pede o histórico de verdade — substitui o cache quando chegar
+      setTimeout(() => document.getElementById('dm-input').focus(), 50);
+    }
+
+    function sendDmMessage() {
+      const input = document.getElementById('dm-input');
+      const text = input.value.trim();
+      if (!text || !currentDmTarget) return;
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const dateStr = now.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+      socket.emit('send-dm', {
+        toUsername: currentDmTarget,
+        message: text,
+        time: timeStr,
+        date: dateStr
+      });
+      input.value = '';
+    }
+
+    function appendDmMessageToDOM(data) {
+      const list = document.getElementById('dm-messages-list');
+      const isMine = data.from === username;
+
+      const avatarStyle = data.fromAvatarUrl
+        ? `background-image: url(${data.fromAvatarUrl});`
+        : `background: ${getUserAvatarGradient(data.from)};`;
+      const initialText = data.fromAvatarUrl ? '' : data.from.charAt(0).toUpperCase();
+
+      const div = document.createElement('div');
+      div.className = 'chat-message-item';
+      div.innerHTML = `
+        <div class="chat-msg-avatar" style="${avatarStyle}">${initialText}</div>
+        <div class="chat-msg-body">
+          <div class="chat-msg-header">
+            <span class="chat-msg-author">${isMine ? 'Você' : data.from}</span>
+            <span class="chat-msg-time">${data.time || 'Agora'}</span>
+          </div>
+          ${data.message ? `<div class="chat-msg-text">${data.message}</div>` : ''}
+          ${attachmentHtml(data.attachment)}
+        </div>
+      `;
+      list.appendChild(div);
+      list.scrollTop = list.scrollHeight;
+    }
+
+    function renderDmMessagesFromCache(key) {
+      const list = document.getElementById('dm-messages-list');
+      list.innerHTML = '';
+      const history = dmMessages[key] || [];
+      history.forEach(appendDmMessageToDOM);
+    }
+
+    // Chega quando ALGUÉM manda uma DM — tanto a confirmação da que a gente mesmo
+    // mandou quanto uma nova de outra pessoa.
+    socket.on('dm-message', (data) => {
+      const key = data.withUsername.toLowerCase();
+      if (!dmMessages[key]) dmMessages[key] = [];
+      dmMessages[key].push(data);
+
+      const modalOpen = document.getElementById('dm-modal').style.display === 'flex';
+      if (modalOpen && currentDmTarget && currentDmTarget.toLowerCase() === key) {
+        appendDmMessageToDOM(data);
+      } else if (data.from !== username) {
+        // Chegou mensagem de uma conversa que não está aberta na tela agora —
+        // avisa com um toast, pra pessoa saber que tem DM nova esperando.
+        showToast(`💬 Nova mensagem de ${data.from}`);
+        playSound('message');
+      }
+    });
+
+    // Histórico de verdade (persistido no servidor) — substitui o que já
+    // tínhamos em cache assim que chega, mesmo padrão do histórico de canal.
+    socket.on('dm-history', (data) => {
+      const key = data.withUsername.toLowerCase();
+      dmMessages[key] = data.messages || [];
+      if (currentDmTarget && currentDmTarget.toLowerCase() === key) {
+        renderDmMessagesFromCache(key);
+      }
+    });
+
     let lastRenderedDate = "";
 
     socket.on('update-voice-users', (data) => {
@@ -5144,6 +5486,9 @@
 
     // ---------- Chat individual por canal (texto E voz) ----------
     let channelMessages = {}; // channelId -> array de mensagens recebidas nesta sessão
+    // ---------- Mensagens privadas (DM) ----------
+    let dmMessages = {}; // nome (minúsculo) do outro usuário -> array de mensagens dessa conversa
+    let currentDmTarget = null; // nome de exibição de com quem a conversa aberta agora é
 
     function escapeHtml(str) {
       const div = document.createElement('div');
