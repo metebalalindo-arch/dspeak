@@ -266,6 +266,7 @@ function sendMyServers(socket) {
     .map(srv => ({
       id: srv.id,
       name: srv.name,
+      iconUrl: srv.iconUrl || null,
       hasPassword: !!srv.passwordHash,
       isOwner: isOwnerOfServer(socket, srv),
       inviteCode: isOwnerOfServer(socket, srv) ? srv.inviteCode : undefined, // só o dono vê/reusa o código
@@ -598,11 +599,17 @@ io.on('connection', (socket) => {
     const name = String(data && data.name || '').trim().slice(0, 60);
     if (!name) { socket.emit('server-create-failed', { message: 'Digite um nome pra esse servidor.' }); return; }
     const password = data && data.password ? String(data.password) : '';
+    // O ícone chega como uma imagem já recortada/comprimida pelo navegador (data
+    // URL base64) — um limite de tamanho aqui é só uma proteção extra contra
+    // alguém mandar algo gigante direto pela conexão, sem passar pela telinha
+    // normal de recortar.
+    const iconUrl = (data && typeof data.iconUrl === 'string' && data.iconUrl.length < 400000) ? data.iconUrl : null;
 
     const id = generateServerId(name);
     const srv = {
       id,
       name,
+      iconUrl,
       ownerUsername: socket.usernameKey,
       passwordHash: password ? hashServerPassword(password) : null,
       inviteCode: crypto.randomBytes(8).toString('hex'),
@@ -644,6 +651,11 @@ io.on('connection', (socket) => {
     }
     // Se nem removePassword nem newPassword vierem, a senha atual (se tiver
     // alguma) fica como está — cobre o caso de só trocar o nome.
+
+    if (data && typeof data.iconUrl === 'string' && data.iconUrl.length < 400000) {
+      srv.iconUrl = data.iconUrl;
+    }
+    // Se iconUrl não vier, o ícone atual (se tiver algum) fica como está.
 
     saveServers();
 
