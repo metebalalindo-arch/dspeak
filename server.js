@@ -393,6 +393,50 @@ function pruneAllMessages() {
 pruneAllMessages(); // limpa mensagens vencidas assim que o servidor sobe
 setInterval(pruneAllMessages, 60 * 60 * 1000); // e a cada hora, mesmo sem mensagens novas
 
+// ---------- Mensagens privadas (DM) ----------
+// Guardadas separadas do chat de canal, com retenção mais longa (30 dias — uma
+// conversa privada costuma valer mais a pena manter do que o papo geral de uma sala).
+const DM_FILE = path.join(DATA_DIR, 'dm-messages.json');
+const DM_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias
+
+let directMessages = {}; // "usuarioA|usuarioB" (ordem alfabética) -> [{ from, message, time, date, timestamp, ... }]
+try {
+  if (fs.existsSync(DM_FILE)) {
+    directMessages = JSON.parse(fs.readFileSync(DM_FILE, 'utf8'));
+  }
+} catch (e) {
+  console.error('Não foi possível ler dm-messages.json, começando do zero.', e);
+  directMessages = {};
+}
+
+function saveDirectMessages() {
+  try {
+    fs.writeFileSync(DM_FILE, JSON.stringify(directMessages, null, 2));
+  } catch (e) {
+    console.error('Não foi possível salvar dm-messages.json', e);
+  }
+}
+
+// Chave estável pra essa dupla de pessoas, não importa quem mandou a última
+// mensagem — sempre a mesma "gaveta" de conversa entre elas duas.
+function dmPairKey(userA, userB) {
+  const a = keyOf(userA), b = keyOf(userB);
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+function pruneDmPair(pairKey) {
+  if (!directMessages[pairKey]) return;
+  const cutoff = Date.now() - DM_RETENTION_MS;
+  directMessages[pairKey] = directMessages[pairKey].filter(m => m.timestamp >= cutoff);
+}
+
+function pruneAllDms() {
+  Object.keys(directMessages).forEach(pruneDmPair);
+  saveDirectMessages();
+}
+pruneAllDms();
+setInterval(pruneAllDms, 60 * 60 * 1000);
+
 io.on('connection', (socket) => {
   console.log('Cliente conectado:', socket.id);
 
@@ -505,6 +549,45 @@ io.on('connection', (socket) => {
   socket.on('get-channel-history', (channelId) => {
     pruneChannelMessages(channelId);
     socket.emit('channel-history', { room: channelId, messages: messages[channelId] || [] });
+  });
+
+  // ---------- Mensagens privadas (DM) ----------
+  socket.on('send-dm', (data) => {
+    if (!socket.username) return;
+    const toUsername = String(data && data.toUsername || '').trim();
+    const message = String(data && data.message || '').trim().slice(0, 2000);
+    if (!toUsername || (!message && !(data && data.attachment))) return;
+    if (keyOf(toUsername) === socket.usernameKey) return; // não manda DM pra si mesmo
+
+    const pairKey = dmPairKey(socket.username, toUsername);
+    const entry = {
+      from: socket.username,
+      fromAvatarUrl: socket.avatarUrl,
+      message,
+      attachment: data && data.attachment,
+      time: data && data.time,
+      date: data && data.date,
+      timestamp: Date.now()
+    };
+    if (!directMessages[pairKey]) directMessages[pairKey] = [];
+    directMessages[pairKey].push(entry);
+    pruneDmPair(pairKey);
+    saveDirectMessages();
+
+    // Confirma pro remetente na hora, e entrega pro destinatário se ele estiver
+    // online agora (se não estiver, a mensagem já ficou salva — ele vê quando
+    // pedir o histórico da próxima vez que abrir essa conversa).
+    socket.emit('dm-message', { withUsername: toUsername, ...entry });
+    findSocketsByUsername(toUsername).forEach(s => {
+      s.emit('dm-message', { withUsername: socket.username, ...entry });
+    });
+  });
+
+  socket.on('get-dm-history', (withUsername) => {
+    if (!socket.username || !withUsername) return;
+    const pairKey = dmPairKey(socket.username, withUsername);
+    pruneDmPair(pairKey);
+    socket.emit('dm-history', { withUsername, messages: directMessages[pairKey] || [] });
   });
 
   // Manda a lista de canais atualizada só pra quem é membro DESSE servidor — não pra
@@ -744,6 +827,29 @@ io.on('connection', (socket) => {
     // Moderador não pode puxar um Owner — só o próprio Owner mexe em outro Owner.
     if (targetSocket.role === 'owner' && socket.role !== 'owner') return;
     targetSocket.emit('force-join-voice', { channelId });
+  });
+
+  // Item 4: expulsa alguém da sala de voz em que está agora (não é um banimento do
+  // servidor inteiro — só sai da sala de voz, pode entrar de novo se quiser).
+  socket.on('kick-user-from-voice', (data) => {
+    if (socket.role !== 'owner' && socket.role !== 'moderator') return;
+    const targetSocketId = data && data.targetSocketId;
+    const targetSocket = io.sockets.sockets.get(targetSocketId);
+    if (!targetSocket) return;
+    // Moderador não pode expulsar um Owner — só o próprio Owner mexe em outro Owner.
+    if (targetSocket.role === 'owner' && socket.role !== 'owner') return;
+
+    let kicked = false;
+    Object.keys(voiceUsers).forEach(chId => {
+      if (voiceUsers[chId].some(u => u.socketId === targetSocketId)) {
+        voiceUsers[chId] = voiceUsers[chId].filter(u => u.socketId !== targetSocketId);
+        kicked = true;
+      }
+    });
+    if (kicked) {
+      targetSocket.emit('kicked-from-voice');
+      io.emit('update-voice-users', voiceUsers);
+    }
   });
 
   socket.on('join-voice-room', (data) => {
