@@ -11,6 +11,21 @@
        espaço no topo pro tamanho exato da barra de título customizada, sem alterar
        nada do layout de quem usa pelo navegador normal. */
     body.has-custom-titlebar { padding-top: 34px; box-sizing: border-box; }
+    /* Todas as telas cheias (modais, avisos) usam "position: fixed; inset: 0",
+       que ignora o padding-top do body — sem isso aqui, elas se centralizavam
+       contando com a altura TOTAL da janela, sem saber que a barra de título
+       customizada já ocupa 34px lá em cima. Resultado: ficavam parcialmente
+       escondidas atrás da barra, ou cortadas embaixo em janelas menores
+       (restauradas, não maximizadas). Isso corrige subtraindo esse espaço.
+    */
+    body.has-custom-titlebar .modal-overlay,
+    body.has-custom-titlebar #welcome-intro-overlay,
+    body.has-custom-titlebar #session-replaced-overlay,
+    body.has-custom-titlebar #reconnect-overlay,
+    body.has-custom-titlebar #auth-overlay {
+      top: 34px;
+      height: calc(100% - 34px);
+    }
 
     #app-title-bar {
       display: none; position: fixed; top: 0; left: 0; right: 0; height: 34px; z-index: 9999;
@@ -288,6 +303,7 @@
     .modal-header-center p { font-size: 12px; color: #8a8f9d; }
 
     .settings-modal { width: 780px; max-width: 92vw; height: auto; max-height: 78vh; min-height: 0; padding: 0; flex-direction: row; overflow: hidden; border-radius: 18px; }
+    body.has-custom-titlebar .settings-modal { max-height: calc(78vh - 34px); }
     .settings-sidebar-nav { width: 220px; background: #0f1117; padding: 20px 12px; border-right: 1px solid rgba(255, 85, 0, 0.15); display: flex; flex-direction: column; gap: 4px; flex-shrink: 0; }
     .settings-nav-title { font-size: 11px; font-weight: 800; color: #ff5500; text-transform: uppercase; letter-spacing: 1px; padding: 0 10px 8px 10px; }
     .settings-nav-item { padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; color: #8a8f9d; cursor: pointer; transition: all 0.15s ease; display: flex; align-items: center; gap: 10px; }
@@ -305,6 +321,7 @@
     .avatar-edit-pencil { position: absolute; bottom: 0; right: 0; background: #ff5500; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #13151b; box-shadow: 0 2px 8px rgba(0,0,0,0.6); transition: transform 0.2s; }
     .avatar-edit-pencil svg { width: 13px; height: 13px; stroke: #fff; stroke-width: 2.5; fill: none; }
     .avatar-edit-wrapper:hover .avatar-edit-pencil { transform: scale(1.15); background: #ff7733; }
+    .server-icon-edit-preview { border-radius: 22px; }
 
     .modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 2px; }
     .modal-field label { font-size: 11px; font-weight: bold; color: #ff5500; text-transform: uppercase; letter-spacing: 0.8px; }
@@ -908,6 +925,16 @@
       </div>
 
       <div id="server-tab-content-create">
+        <div class="avatar-upload-container">
+          <div class="avatar-edit-wrapper" onclick="triggerAvatarUpload('server')">
+            <div class="avatar-edit-preview server-icon-edit-preview" id="new-server-icon-preview">
+              <span>🖼️</span>
+            </div>
+            <div class="avatar-edit-pencil" title="Escolher ícone do servidor">
+              <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </div>
+          </div>
+        </div>
         <div class="modal-field">
           <label>Nome do Servidor</label>
           <input type="text" id="new-server-name" placeholder="ex: Turma do Daniel" />
@@ -954,6 +981,16 @@
       <button class="modal-close-btn" onclick="closeModal('edit-server-modal')">✕</button>
       <div class="modal-header-center">
         <h2>Editar Servidor</h2>
+      </div>
+      <div class="avatar-upload-container">
+        <div class="avatar-edit-wrapper" onclick="triggerAvatarUpload('server')">
+          <div class="avatar-edit-preview server-icon-edit-preview" id="edit-server-icon-preview">
+            <span>🖼️</span>
+          </div>
+          <div class="avatar-edit-pencil" title="Trocar ícone do servidor">
+            <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          </div>
+        </div>
       </div>
       <div class="modal-field">
         <label>Nome do Servidor</label>
@@ -1201,6 +1238,11 @@
     let username = "";
     let userAvatarUrl = "";
     let tempAvatarUrl = "";
+    // A mesma telinha de recortar imagem (crop) é reaproveitada aqui pro ícone do
+    // servidor — esse valor diz qual dos dois estamos editando no momento, pra
+    // confirmAvatarCrop() saber onde guardar o resultado.
+    let cropTarget = 'user'; // 'user' | 'server'
+    let tempServerIconUrl = "";
 
     let connectedUsersList = [];
     let activeStreams = {};
@@ -1779,7 +1821,10 @@
       document.querySelectorAll('#streams-container video').forEach(apply);
     }
 
-    function triggerAvatarUpload() { document.getElementById('avatar-file-input').click(); }
+    function triggerAvatarUpload(target) {
+      cropTarget = target || 'user';
+      document.getElementById('avatar-file-input').click();
+    }
 
     // Item 4: agora, ao escolher a foto, abrimos o editor de recorte em vez de aplicar direto
     function handleAvatarFileSelect(e) {
@@ -1872,9 +1917,34 @@
         cropState.offsetX * ratio, cropState.offsetY * ratio,
         cropState.naturalW * cropState.scale * ratio, cropState.naturalH * cropState.scale * ratio
       );
-      tempAvatarUrl = canvas.toDataURL('image/jpeg', 0.9);
-      updateModalAvatarPreview();
+      const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+
+      if (cropTarget === 'server') {
+        tempServerIconUrl = croppedDataUrl;
+        updateServerIconPreviews();
+      } else {
+        tempAvatarUrl = croppedDataUrl;
+        updateModalAvatarPreview();
+      }
       closeModal('avatar-crop-modal');
+    }
+
+    // Atualiza a pré-visualização do ícone do servidor nos DOIS modais (criar e
+    // editar) — só um deles está aberto por vez, então não custa nada atualizar os
+    // dois de qualquer jeito, mais simples do que rastrear qual está ativo.
+    function updateServerIconPreviews() {
+      ['new-server-icon-preview', 'edit-server-icon-preview'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const initialSpan = el.querySelector('span');
+        if (tempServerIconUrl) {
+          el.style.backgroundImage = `url(${tempServerIconUrl})`;
+          if (initialSpan) initialSpan.style.display = 'none';
+        } else {
+          el.style.backgroundImage = 'none';
+          if (initialSpan) initialSpan.style.display = '';
+        }
+      });
     }
 
     function updateModalAvatarPreview() {
@@ -2139,9 +2209,13 @@
           div.style.backgroundImage = `url(${MASCOT_ICON_URL})`;
           div.style.backgroundSize = 'cover';
           div.style.backgroundPosition = 'center';
+        } else if (srv.iconUrl) {
+          div.style.backgroundImage = `url(${srv.iconUrl})`;
+          div.style.backgroundSize = 'cover';
+          div.style.backgroundPosition = 'center';
         } else {
-          // Iniciais do nome (tipo Discord) — servidores criados por usuários não
-          // têm um ícone próprio ainda, então isso ajuda a diferenciar um do outro.
+          // Iniciais do nome (tipo Discord) — enquanto o servidor não tem um
+          // ícone próprio, isso ajuda a diferenciar um do outro.
           const initials = String(srv.name || '?').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 3).toUpperCase();
           div.textContent = initials;
         }
@@ -2220,6 +2294,8 @@
       document.getElementById('new-server-password-field').style.display = 'none';
       document.getElementById('join-server-code').value = '';
       document.getElementById('join-server-password').value = '';
+      tempServerIconUrl = '';
+      updateServerIconPreviews();
 
       // Criar servidor novo é restrito ao Owner global — quem não for, só vê a aba
       // de entrar com convite (sem isso, virava bagunça de servidor toda hora).
@@ -2248,7 +2324,7 @@
       const password = hasPassword ? document.getElementById('new-server-password').value : '';
       if (hasPassword && !password) { showToast('Digite a senha, ou desmarque a opção de senha.'); return; }
 
-      socket.emit('create-server', { name, password });
+      socket.emit('create-server', { name, password, iconUrl: tempServerIconUrl || null });
       closeModal('server-join-create-modal');
       showToast(`Criando o servidor "${name}"...`);
     }
@@ -2328,6 +2404,18 @@
       document.getElementById('edit-server-password').placeholder = srv.hasPassword
         ? 'Deixe em branco pra manter a senha atual'
         : 'Digite a nova senha';
+      // Não fica com o ícone escolhido de uma edição anterior — mas mostra o ícone
+      // ATUAL do servidor (se ele já tiver um) na pré-visualização.
+      tempServerIconUrl = '';
+      updateServerIconPreviews();
+      const editPreview = document.getElementById('edit-server-icon-preview');
+      if (srv.iconUrl) {
+        editPreview.style.backgroundImage = `url(${srv.iconUrl})`;
+        editPreview.querySelector('span').style.display = 'none';
+      } else {
+        editPreview.style.backgroundImage = 'none';
+        editPreview.querySelector('span').style.display = '';
+      }
       toggleServerMenu(); // fecha o menu do servidor antes de abrir o modal
       openModal('edit-server-modal');
     }
@@ -2351,6 +2439,10 @@
       }
       // Marcou mas deixou em branco E já tinha senha: não manda nem removePassword
       // nem newPassword — o servidor entende isso como "mantém a senha atual".
+
+      // Só manda um ícone novo se a pessoa realmente escolheu um NESSA sessão do
+      // modal — sem isso, o ícone atual (se já tinha um) fica como está.
+      if (tempServerIconUrl) payload.iconUrl = tempServerIconUrl;
 
       socket.emit('rename-server', payload);
       closeModal('edit-server-modal');
