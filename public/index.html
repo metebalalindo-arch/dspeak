@@ -203,6 +203,7 @@
 
     .channel-right-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .channel-unread-badge { background: #ff3333; color: #fff; font-size: 9px; font-weight: 800; min-width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px; box-shadow: 0 0 8px rgba(255, 51, 51, 0.7); flex-shrink: 0; }
+    .dm-unread-dot { position: absolute; top: -2px; right: -2px; width: 9px; height: 9px; border-radius: 50%; background: #ff3333; box-shadow: 0 0 6px rgba(255, 51, 51, 0.8), 0 0 0 2px #13151b; }
     .channel-occupancy-badge { font-size: 10px; font-weight: 700; color: #8a8f9d; background: rgba(255,255,255,0.06); border-radius: 8px; padding: 1px 6px; flex-shrink: 0; }
     .channel-occupancy-badge.full { color: #ff3333; background: rgba(255, 51, 51, 0.12); }
     .channel-silent-badge { font-size: 11px; flex-shrink: 0; opacity: 0.8; }
@@ -505,7 +506,7 @@
     .attachment-preview-remove:hover { color: #ff3333; }
     .attachment-upload-progress { font-size: 11px; color: #ff5500; }
 
-    .emoji-gif-popover { display: none; position: absolute; bottom: 70px; right: 16px; width: 320px; height: 380px; background: #13151b; border: 1px solid rgba(255,85,0,0.35); border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,0.85); z-index: 1500; flex-direction: column; overflow: hidden; }
+    .emoji-gif-popover { display: none; position: fixed; width: 320px; height: 380px; background: #13151b; border: 1px solid rgba(255,85,0,0.35); border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,0.85); z-index: 2000; flex-direction: column; overflow: hidden; }
     .egp-tabs { display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); flex-shrink: 0; }
     .egp-tab { flex: 1; background: transparent; border: none; color: #8a8f9d; padding: 10px; font-weight: 700; font-size: 12px; cursor: pointer; border-bottom: 2px solid transparent; }
     .egp-tab.active { color: #ff5500; border-bottom-color: #ff5500; }
@@ -1083,13 +1084,22 @@
       <div style="display:flex; align-items:center; gap:10px; padding: 14px 16px; border-bottom: 1px solid rgba(255,85,0,0.15); flex-shrink: 0;">
         <div class="avatar-edit-preview" id="dm-modal-avatar" style="width:34px; height:34px; font-size:14px; box-shadow:none; border-width:1px;"></div>
         <div style="font-weight:700; font-size:15px;" id="dm-modal-username">Nome</div>
-        <button class="modal-close-btn" onclick="closeModal('dm-modal')" style="position:static; margin-left:auto;">✕</button>
+        <button class="modal-close-btn" onclick="closeDmModal()" style="position:static; margin-left:auto;">✕</button>
       </div>
       <div id="dm-messages-list" style="flex:1; overflow-y:auto; padding: 12px 16px;"></div>
-      <div style="display:flex; gap:8px; padding: 10px 12px; border-top: 1px solid rgba(255,85,0,0.15); flex-shrink: 0;">
-        <input type="text" id="dm-input" placeholder="Mensagem privada..." style="flex:1;" onkeypress="if(event.key==='Enter') sendDmMessage()" />
-        <button class="btn-create" onclick="sendDmMessage()" style="padding: 8px 16px;">Enviar</button>
-      </div>
+      <div id="dm-attachment-preview-bar" style="display:none;"></div>
+      <form class="form-container" onsubmit="event.preventDefault(); sendDmMessage();">
+        <div class="input-wrapper">
+          <button type="button" class="input-icon-btn" onclick="chatContext = 'dm'; triggerFileAttach()" title="Anexar arquivo (até 10MB)">
+            <svg viewBox="0 0 24 24"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </button>
+          <input type="text" id="dm-input" autocomplete="off" placeholder="Mensagem privada..." onkeypress="if(event.key==='Enter'){event.preventDefault(); sendDmMessage();}" />
+          <button type="button" class="input-icon-btn" onclick="chatContext = 'dm'; toggleEmojiGifPicker(event)" title="Emojis e GIFs">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/></svg>
+          </button>
+          <button type="submit">Enviar</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -2323,6 +2333,13 @@
       document.getElementById(id).style.display = 'none'; 
     }
 
+    function closeDmModal() {
+      closeModal('dm-modal');
+      clearPendingAttachment(); // limpa o anexo da DM (ainda em contexto 'dm' aqui)
+      chatContext = 'channel';
+      currentDmTarget = null;
+    }
+
     function switchServer(serverId) {
       activeServerId = serverId;
       const srv = servers.find(s => s.id === serverId);
@@ -2707,7 +2724,7 @@
                 <div style="display:flex; align-items:center; gap:8px;">
                   ${voiceStatusIconsHtml(u, isSelf)}
                   <div class="voice-user-manage-controls">
-                    ${isSelf ? '' : `<button class="user-volume-btn" title="Mensagem privada" onclick="event.stopPropagation(); openDmWith('${String(u.name).replace(/'/g, "\\'")}', ${u.avatarUrl ? `'${u.avatarUrl}'` : 'null'})">💬</button>`}
+                    ${isSelf ? '' : `<button class="user-volume-btn" title="Mensagem privada" style="position:relative;" onclick="event.stopPropagation(); openDmWith('${String(u.name).replace(/'/g, "\\'")}', ${u.avatarUrl ? `'${u.avatarUrl}'` : 'null'})">💬${unreadDms[u.name.toLowerCase()] ? '<span class="dm-unread-dot"></span>' : ''}</button>`}
                     ${voiceVolumeBtnHtml(u, isSelf)}
                     ${roleManageBtnHtml(u, isSelf)}
                   </div>
@@ -5125,7 +5142,13 @@
 
     // ---------- Anexar arquivo (até 10MB) e colar imagem com Ctrl+V ----------
     const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10MB
-    let pendingAttachment = null; // { url, filename, size, mimetype } depois do upload
+    // Qual chat está "ativo" pro botão de anexo/emoji/GIF agora — o chat normal de
+    // canal, ou a conversa privada (DM) aberta no momento. Esses componentes são
+    // compartilhados entre os dois (o mesmo popover de emoji/GIF, a mesma lógica de
+    // upload), então precisam saber pra ONDE mandar o resultado.
+    let chatContext = 'channel'; // 'channel' | 'dm'
+    let pendingAttachment = null; // { url, filename, size, mimetype } depois do upload — chat de canal
+    let pendingDmAttachment = null; // idem, mas pra conversa privada
 
     function triggerFileAttach() {
       document.getElementById('attach-file-input').click();
@@ -5154,7 +5177,7 @@
           throw new Error(errBody.error || 'Falha no upload.');
         }
         const uploaded = await res.json();
-        pendingAttachment = uploaded;
+        if (chatContext === 'dm') pendingDmAttachment = uploaded; else pendingAttachment = uploaded;
         renderAttachmentPreview(uploaded);
       } catch (err) {
         showToast(`Não foi possível anexar "${file.name}". ${err.message || ''}`.trim());
@@ -5163,7 +5186,7 @@
     }
 
     function renderAttachmentPreview(attachment) {
-      const bar = document.getElementById('attachment-preview-bar');
+      const bar = document.getElementById(chatContext === 'dm' ? 'dm-attachment-preview-bar' : 'attachment-preview-bar');
       const isImage = attachment.mimetype && attachment.mimetype.startsWith('image/');
       const safeName = escapeHtml(attachment.filename);
       const thumb = isImage && !attachment.uploading
@@ -5186,8 +5209,8 @@
     }
 
     function clearPendingAttachment() {
-      pendingAttachment = null;
-      const bar = document.getElementById('attachment-preview-bar');
+      if (chatContext === 'dm') pendingDmAttachment = null; else pendingAttachment = null;
+      const bar = document.getElementById(chatContext === 'dm' ? 'dm-attachment-preview-bar' : 'attachment-preview-bar');
       bar.innerHTML = '';
       bar.style.display = 'none';
     }
@@ -5214,7 +5237,7 @@
     }
 
     function insertEmoji(emoji) {
-      const input = document.getElementById('input');
+      const input = document.getElementById(chatContext === 'dm' ? 'dm-input' : 'input');
       input.value += emoji;
       input.focus();
     }
@@ -5226,6 +5249,17 @@
         pop.style.display = 'none';
         return;
       }
+      // Posiciona logo acima do botão que abriu (funciona tanto no chat normal
+      // quanto de dentro do modal de DM, já que agora é posicionamento fixo,
+      // calculado na hora, em vez de fixo num canto específico de um container só).
+      const rect = e.currentTarget.getBoundingClientRect();
+      const popWidth = 320, popHeight = 380;
+      let left = rect.right - popWidth;
+      if (left < 8) left = 8;
+      let top = rect.top - popHeight - 8;
+      if (top < 8) top = rect.bottom + 8; // sem espaço em cima — abre pra baixo em vez disso
+      pop.style.left = `${left}px`;
+      pop.style.top = `${top}px`;
       pop.style.display = 'flex';
       if (!emojiGridRendered) renderEmojiGrid();
       if (!gifsLoadedOnce) loadTrendingGifs();
@@ -5297,22 +5331,29 @@
 
     function sendGifMessage(index) {
       const gif = window._lastGifResults && window._lastGifResults[index];
-      if (!gif || !activeChannel) return;
+      if (!gif) return;
       const gifUrl = gif.images.original.url;
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const dateStr = now.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const attachment = { url: gifUrl, filename: 'gif.gif', size: 0, mimetype: 'image/gif' };
 
-      socket.emit('chat-message', {
-        room: activeChannel,
-        message: '',
-        attachment: { url: gifUrl, filename: 'gif.gif', size: 0, mimetype: 'image/gif' },
-        user: username,
-        avatarUrl: userAvatarUrl,
-        time: timeStr,
-        date: dateStr
-      });
+      if (chatContext === 'dm') {
+        if (!currentDmTarget) return;
+        socket.emit('send-dm', { toUsername: currentDmTarget, message: '', attachment, time: timeStr, date: dateStr });
+      } else {
+        if (!activeChannel) return;
+        socket.emit('chat-message', {
+          room: activeChannel,
+          message: '',
+          attachment,
+          user: username,
+          avatarUrl: userAvatarUrl,
+          time: timeStr,
+          date: dateStr
+        });
+      }
       document.getElementById('emoji-gif-popover').style.display = 'none';
     }
 
@@ -5358,8 +5399,10 @@
 
     // ---------- Mensagens privadas (DM) ----------
     function openDmWith(targetUsername, targetAvatarUrl) {
+      chatContext = 'dm';
       currentDmTarget = targetUsername;
       const key = targetUsername.toLowerCase();
+      if (unreadDms[key]) { delete unreadDms[key]; renderChannels(); }
 
       document.getElementById('dm-modal-username').textContent = targetUsername;
       const avatarEl = document.getElementById('dm-modal-avatar');
@@ -5381,7 +5424,8 @@
     function sendDmMessage() {
       const input = document.getElementById('dm-input');
       const text = input.value.trim();
-      if (!text || !currentDmTarget) return;
+      if (!text && !pendingDmAttachment) return;
+      if (!currentDmTarget) return;
 
       const now = new Date();
       const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -5390,10 +5434,12 @@
       socket.emit('send-dm', {
         toUsername: currentDmTarget,
         message: text,
+        attachment: pendingDmAttachment || undefined,
         time: timeStr,
         date: dateStr
       });
       input.value = '';
+      clearPendingAttachment();
     }
 
     function appendDmMessageToDOM(data) {
@@ -5441,9 +5487,13 @@
         appendDmMessageToDOM(data);
       } else if (data.from !== username) {
         // Chegou mensagem de uma conversa que não está aberta na tela agora —
-        // avisa com um toast, pra pessoa saber que tem DM nova esperando.
+        // avisa com um toast E deixa uma bolinha vermelha marcada no botão 💬
+        // daquela pessoa, até ela abrir a conversa (mesmo padrão do "não lido"
+        // que já existia nos canais de texto).
+        unreadDms[key] = true;
         showToast(`💬 Nova mensagem de ${data.from}`);
         playSound('message');
+        renderChannels(); // atualiza a lista de voz pra mostrar a bolinha na hora
       }
     });
 
@@ -5489,6 +5539,7 @@
     // ---------- Mensagens privadas (DM) ----------
     let dmMessages = {}; // nome (minúsculo) do outro usuário -> array de mensagens dessa conversa
     let currentDmTarget = null; // nome de exibição de com quem a conversa aberta agora é
+    let unreadDms = {}; // nome (minúsculo) -> true se tem mensagem privada não lida dessa pessoa
 
     function escapeHtml(str) {
       const div = document.createElement('div');
