@@ -5421,11 +5421,17 @@
 
       document.getElementById('dm-modal-username').textContent = targetUsername;
       const avatarEl = document.getElementById('dm-modal-avatar');
+      // Limpa TUDO primeiro — sem isso, um resíduo do estilo da conversa anterior
+      // (ex: o gradiente de quem não tem foto) podia ficar por baixo/misturado com
+      // o avatar da conversa nova, dando esse efeito de "duas imagens por cima".
+      avatarEl.style.background = '';
+      avatarEl.style.backgroundImage = '';
+      avatarEl.textContent = '';
       if (targetAvatarUrl) {
         avatarEl.style.backgroundImage = `url(${targetAvatarUrl})`;
-        avatarEl.textContent = '';
+        avatarEl.style.backgroundSize = 'cover';
+        avatarEl.style.backgroundPosition = 'center';
       } else {
-        avatarEl.style.backgroundImage = 'none';
         avatarEl.style.background = getUserAvatarGradient(targetUsername);
         avatarEl.textContent = targetUsername.charAt(0).toUpperCase();
       }
