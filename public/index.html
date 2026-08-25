@@ -203,7 +203,15 @@
 
     .channel-right-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .channel-unread-badge { background: #ff3333; color: #fff; font-size: 9px; font-weight: 800; min-width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px; box-shadow: 0 0 8px rgba(255, 51, 51, 0.7); flex-shrink: 0; }
-    .dm-unread-dot { position: absolute; top: -2px; right: -2px; width: 9px; height: 9px; border-radius: 50%; background: #ff3333; box-shadow: 0 0 6px rgba(255, 51, 51, 0.8), 0 0 0 2px #13151b; }
+    .dm-unread-badge {
+      background: rgba(255,51,51,0.15); border: 1px solid #ff3333; color: #ff3333;
+      border-radius: 10px; font-size: 11px; padding: 1px 6px; cursor: pointer;
+      animation: dmUnreadPulse 1.4s ease-in-out infinite; flex-shrink: 0;
+    }
+    @keyframes dmUnreadPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255,51,51,0.5); }
+      50% { box-shadow: 0 0 6px 2px rgba(255,51,51,0.5); }
+    }
     .channel-occupancy-badge { font-size: 10px; font-weight: 700; color: #8a8f9d; background: rgba(255,255,255,0.06); border-radius: 8px; padding: 1px 6px; flex-shrink: 0; }
     .channel-occupancy-badge.full { color: #ff3333; background: rgba(255, 51, 51, 0.12); }
     .channel-silent-badge { font-size: 11px; flex-shrink: 0; opacity: 0.8; }
@@ -1624,7 +1632,10 @@
     // com STUN — não trava nada, só perde a "ponte" pra esses casos mais difíceis.
     async function loadTurnServers() {
       try {
-        const response = await fetch('https://dspeak.metered.live/api/v1/turn/credentials?apiKey=713167ad928911da8f9bb22c7d860c59804f');
+        // Passa pelo NOSSO servidor agora, não mais direto no metered.ca — assim a
+        // chave da API deles nunca fica exposta no código do site (que qualquer
+        // pessoa pode ver, é assim que todo navegador funciona).
+        const response = await fetch('/turn-credentials');
         const iceServers = await response.json();
         if (Array.isArray(iceServers) && iceServers.length > 0) {
           // Mantém o STUN do Google também, de quebra — não faz mal ter mais de uma
@@ -2715,16 +2726,20 @@
                 }
               }
 
+              const dmSafeName = String(u.name).replace(/'/g, "\\'");
+              const hasUnreadDm = !isSelf && !!unreadDms[u.name.toLowerCase()];
+
               sub.innerHTML = `
                 <div class="voice-user-left">
                   <div class="voice-user-avatar" style="${avatarStyle}">${initialText}</div>
                   <span class="voice-user-name">${u.name}</span>
                   ${roleBadgeHtml(u.role)}
+                  ${hasUnreadDm ? `<button class="dm-unread-badge" title="Mensagem privada não lida — clica pra abrir" onclick="event.stopPropagation(); openDmWith('${dmSafeName}', ${u.avatarUrl ? `'${u.avatarUrl}'` : 'null'})">💬</button>` : ''}
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
                   ${voiceStatusIconsHtml(u, isSelf)}
                   <div class="voice-user-manage-controls">
-                    ${isSelf ? '' : `<button class="user-volume-btn" title="Mensagem privada" style="position:relative;" onclick="event.stopPropagation(); openDmWith('${String(u.name).replace(/'/g, "\\'")}', ${u.avatarUrl ? `'${u.avatarUrl}'` : 'null'})">💬${unreadDms[u.name.toLowerCase()] ? '<span class="dm-unread-dot"></span>' : ''}</button>`}
+                    ${isSelf ? '' : `<button class="user-volume-btn" title="Mensagem privada" onclick="event.stopPropagation(); openDmWith('${dmSafeName}', ${u.avatarUrl ? `'${u.avatarUrl}'` : 'null'})">💬</button>`}
                     ${voiceVolumeBtnHtml(u, isSelf)}
                     ${roleManageBtnHtml(u, isSelf)}
                   </div>
