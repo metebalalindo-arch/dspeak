@@ -602,8 +602,12 @@ io.on('connection', (socket) => {
     // O ícone chega como uma imagem já recortada/comprimida pelo navegador (data
     // URL base64) — um limite de tamanho aqui é só uma proteção extra contra
     // alguém mandar algo gigante direto pela conexão, sem passar pela telinha
-    // normal de recortar.
-    const iconUrl = (data && typeof data.iconUrl === 'string' && data.iconUrl.length < 400000) ? data.iconUrl : null;
+    // normal de recortar. 3MB de folga é bem mais que suficiente pra uma imagem
+    // 256x256 JPEG (400KB era baixo demais pra fotos reais com bastante detalhe —
+    // falhava calado, sem avisar nada, dando a impressão de "salvou mas não pegou").
+    const iconTooBig = data && typeof data.iconUrl === 'string' && data.iconUrl.length >= 3000000;
+    if (iconTooBig) socket.emit('server-create-failed', { message: 'Essa imagem do servidor ficou grande demais — tenta uma foto mais simples.' });
+    const iconUrl = (data && typeof data.iconUrl === 'string' && !iconTooBig) ? data.iconUrl : null;
 
     const id = generateServerId(name);
     const srv = {
@@ -652,8 +656,12 @@ io.on('connection', (socket) => {
     // Se nem removePassword nem newPassword vierem, a senha atual (se tiver
     // alguma) fica como está — cobre o caso de só trocar o nome.
 
-    if (data && typeof data.iconUrl === 'string' && data.iconUrl.length < 400000) {
-      srv.iconUrl = data.iconUrl;
+    if (data && typeof data.iconUrl === 'string') {
+      if (data.iconUrl.length < 3000000) {
+        srv.iconUrl = data.iconUrl;
+      } else {
+        socket.emit('server-join-failed', { message: 'Essa imagem do servidor ficou grande demais — tenta uma foto mais simples. O resto foi salvo normalmente.' });
+      }
     }
     // Se iconUrl não vier, o ícone atual (se tiver algum) fica como está.
 
