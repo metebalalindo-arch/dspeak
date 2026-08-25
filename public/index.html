@@ -1486,7 +1486,35 @@
     // mexia o suficiente na sessão pra bagunçar o buffer de áudio de quem assiste. Por
     // isso o vídeo agora também reaproveita o mesmo sender via replaceTrack.
     const screenVideoSenderByPc = new WeakMap();
-    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    // rtcConfig começa só com STUN (funciona pra maioria) — e é atualizado assim que
+    // a busca por um servidor TURN de verdade terminar (ver loadTurnServers() logo
+    // abaixo). TURN é necessário especificamente quando a rede de UMA pessoa não
+    // consegue se conectar direto com a de OUTRA (comum em rede de empresa, alguns
+    // provedores de celular, ou NAT mais restritivo) — sem isso, dava pra duas
+    // pessoas específicas nunca conseguirem se ouvir, mesmo com todo mundo mais
+    // funcionando normal.
+    let rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    // Busca um servidor TURN de verdade (conta gratuita no metered.ca) assim que a
+    // página carrega — dá tempo de sobra antes de alguém realmente entrar numa
+    // chamada de voz. Se der erro (sem internet nesse instante, cota do plano
+    // gratuito esgotada, serviço fora do ar), o app continua funcionando normal só
+    // com STUN — não trava nada, só perde a "ponte" pra esses casos mais difíceis.
+    async function loadTurnServers() {
+      try {
+        const response = await fetch('https://dspeak.metered.live/api/v1/turn/credentials?apiKey=713167ad928911da8f9bb22c7d860c59804f');
+        const iceServers = await response.json();
+        if (Array.isArray(iceServers) && iceServers.length > 0) {
+          // Mantém o STUN do Google também, de quebra — não faz mal ter mais de uma
+          // opção disponível.
+          rtcConfig = { iceServers: [...iceServers, { urls: 'stun:stun.l.google.com:19302' }] };
+          console.log('[WebRTC] Servidor TURN carregado com sucesso.');
+        }
+      } catch (err) {
+        console.warn('[WebRTC] Não foi possível carregar o servidor TURN — seguindo só com STUN.', err);
+      }
+    }
+    loadTurnServers();
 
     // --- Item 3: microfone/áudio de voz real ---
     let localMicStream = null;
