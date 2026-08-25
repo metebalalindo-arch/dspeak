@@ -3324,6 +3324,12 @@
     // Guardado só na memória desta sessão (socketId -> 0 a 1). Não é enviado pro
     // servidor nem pra mais ninguém — cada pessoa ajusta o volume só do seu lado.
     let userVolumes = {};
+    // Separado do volume — guarda especificamente se a pessoa apertou o botão de
+    // MUDO pra essa live (independente do volume estar em 100% ou não). Sem isso,
+    // só o volume (0-100%) sobrevivia a uma nova renderização da tela de lives —
+    // apertar mudo pelo botão (sem mexer no volume) se perdia toda vez que
+    // QUALQUER live abria ou fechava, porque isso reconstrói a tela toda do zero.
+    let userMuted = {};
     let userVolumePopoverTarget = null;
 
     function voiceVolumeBtnHtml(u, isSelf) {
@@ -4718,11 +4724,12 @@
         const isOwnPreview = (userKey === username);
         const streamSocketId = activeStreams[userKey].socketId;
         const savedVolume = userVolumes[streamSocketId] !== undefined ? userVolumes[streamSocketId] : 1;
+        const savedMuted = userMuted[streamSocketId] !== undefined ? userMuted[streamSocketId] : false;
 
         const video = document.createElement('video');
         video.autoplay = true;
         video.playsinline = true;
-        video.muted = isOwnPreview || isDeafened || savedVolume === 0;
+        video.muted = isOwnPreview || isDeafened || savedMuted || savedVolume === 0;
         video.srcObject = activeStreams[userKey].stream;
         video.volume = savedVolume;
         if (isOwnPreview) video.classList.add('own-preview');
@@ -4763,6 +4770,7 @@
             if (bigPlayOverlay) bigPlayOverlay.style.display = 'none';
             video.muted = false;
             video.volume = savedVolume || 1;
+            userMuted[streamSocketId] = false;
             video.play().catch(() => {});
             updateMuteIcon();
           };
@@ -4771,6 +4779,7 @@
             e.stopPropagation();
             if (audioBlocked) { playAfterGesture(); return; }
             video.muted = !video.muted;
+            userMuted[streamSocketId] = video.muted; // sobrevive a re-renderizações agora
             if (!video.muted && video.volume === 0) {
               video.volume = 1;
               volumeSlider.value = 100;
@@ -4786,6 +4795,7 @@
             video.volume = val;
             video.muted = val === 0;
             userVolumes[streamSocketId] = val; // salva pra sobreviver a re-renderizações
+            userMuted[streamSocketId] = video.muted;
             updateMuteIcon();
           };
           volumeSlider.onclick = (e) => e.stopPropagation();
