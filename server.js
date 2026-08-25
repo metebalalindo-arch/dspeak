@@ -22,6 +22,26 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ---------- Credenciais do servidor TURN (proxy) ----------
+// A chave da API do metered.ca NUNCA vai pro navegador de ninguém — fica só aqui,
+// no servidor. O site pede pra ROTA NOSSA (/turn-credentials), e é esse código
+// aqui que busca no metered.ca por trás dos panos e devolve só o resultado (que
+// não é secreto, são credenciais de uso único/temporárias do TURN em si).
+// Mesmo padrão do OWNER_CLAIM_CODE: dá pra sobrescrever com uma variável de
+// ambiente própria (METERED_API_KEY) no painel do Render, sem precisar mexer
+// no código.
+const METERED_API_KEY = process.env.METERED_API_KEY || '713167ad928911da8f9bb22c7d860c59804f';
+app.get('/turn-credentials', async (req, res) => {
+  try {
+    const response = await fetch(`https://dspeak.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`);
+    const iceServers = await response.json();
+    res.json(iceServers);
+  } catch (err) {
+    console.error('[DSpeak] Não consegui buscar credenciais do TURN:', err);
+    res.status(502).json([]); // o cliente já sabe seguir só com STUN se isso vier vazio
+  }
+});
+
 // ---------- Pasta de dados persistentes ----------
 // IMPORTANTE: no Render (e na maioria dos serviços de hospedagem "sem estado"), a
 // pasta do projeto é recriada do ZERO a cada novo deploy — qualquer arquivo que não
