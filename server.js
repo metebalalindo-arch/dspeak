@@ -23,16 +23,46 @@ app.get('/', (req, res) => {
 });
 
 // ---------- Credenciais do servidor TURN (proxy) ----------
-// A chave da API do metered.ca NUNCA vai pro navegador de ninguém — fica só aqui,
-// no servidor. O site pede pra ROTA NOSSA (/turn-credentials), e é esse código
-// aqui que busca no metered.ca por trás dos panos e devolve só o resultado (que
-// não é secreto, são credenciais de uso único/temporárias do TURN em si).
-// Mesmo padrão do OWNER_CLAIM_CODE: dá pra sobrescrever com uma variável de
-// ambiente própria (METERED_API_KEY) no painel do Render, sem precisar mexer
-// no código.
+// Trocamos do metered.ca pra Cloudflare Realtime — 1000 GB (1TB) grátis por mês, MUITO
+// mais generoso que os 500MB do metered.ca (que já estourou uma vez). A chave de
+// verdade (TURN_KEY_API_TOKEN) NUNCA vai pro navegador de ninguém — fica só aqui, no
+// servidor. Configura essas duas variáveis de ambiente no painel do Render:
+//   CLOUDFLARE_TURN_KEY_ID       (o "Key ID" que aparece ao criar uma TURN key no
+//                                 painel da Cloudflare, em Realtime/Calls)
+//   CLOUDFLARE_TURN_API_TOKEN    (o "API Token"/"Bearer token" gerado junto)
+const CLOUDFLARE_TURN_KEY_ID = process.env.CLOUDFLARE_TURN_KEY_ID || '';
+const CLOUDFLARE_TURN_API_TOKEN = process.env.CLOUDFLARE_TURN_API_TOKEN || '';
+// Mantido como plano B enquanto a Cloudflare não estiver configurada — pode remover
+// isso mais pra frente, depois que confirmar que a Cloudflare está funcionando.
 const METERED_API_KEY = process.env.METERED_API_KEY || '713167ad928911da8f9bb22c7d860c59804f';
+
 app.get('/turn-credentials', async (req, res) => {
   try {
+    if (CLOUDFLARE_TURN_KEY_ID && CLOUDFLARE_TURN_API_TOKEN) {
+      const response = await fetch(
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${CLOUDFLARE_TURN_KEY_ID}/credentials/generate-ice-servers`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${CLOUDFLARE_TURN_API_TOKEN}`,
+            'Content-Type': 'application/json'
+          },
+          // 24h de validade pra credencial — de sobra pra qualquer chamada de voz,
+          // e o cliente busca uma credencial nova a cada vez que entra numa sala
+          // mesmo, então não precisa durar mais que isso.
+          body: JSON.stringify({ ttl: 86400 })
+        }
+      );
+      const data = await response.json();
+      if (data && Array.isArray(data.iceServers)) {
+        res.json(data.iceServers);
+        return;
+      }
+      console.error('[DSpeak] Resposta inesperada da Cloudflare TURN:', data);
+    }
+
+    // Plano B: metered.ca (só usado se a Cloudflare não estiver configurada, ou se
+    // a chamada acima falhar por algum motivo).
     const response = await fetch(`https://dspeak.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`);
     const iceServers = await response.json();
     res.json(iceServers);
