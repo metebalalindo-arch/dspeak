@@ -4820,6 +4820,26 @@
       };
       pc.onconnectionstatechange = () => {
         console.log(`[WebRTC] Conexão com ${targetSocketId}: ${pc.connectionState}`);
+        if (pc.connectionState === 'connected') {
+          pc.iceRestartAttempts = 0; // conectou de verdade — zera a contagem pra uma próxima falha (se acontecer bem mais tarde) começar do zero de novo
+        } else if (pc.connectionState === 'failed') {
+          // A ligação falhou de vez (não é um "disconnected" passageiro, que às vezes
+          // se recupera sozinho) — sem isso, ela ficava quebrada pro resto da sessão,
+          // sem nenhuma tentativa nova. restartIce() dispara onnegotiationneeded de
+          // novo sozinho, reaproveitando o mesmo código de mandar oferta que já
+          // funciona — só limitamos quantas vezes tenta, pra não ficar insistindo pra
+          // sempre se a rede genuinamente não conseguir se conectar de jeito nenhum.
+          pc.iceRestartAttempts = (pc.iceRestartAttempts || 0) + 1;
+          if (pc.iceRestartAttempts <= 3) {
+            const delay = pc.iceRestartAttempts * 1000;
+            console.log(`[WebRTC] Conexão com ${targetSocketId} falhou — tentando de novo em ${delay}ms (tentativa ${pc.iceRestartAttempts}/3)...`);
+            setTimeout(() => {
+              if (pc.connectionState === 'failed') pc.restartIce();
+            }, delay);
+          } else {
+            console.warn(`[WebRTC] Desisti de reconectar com ${targetSocketId} depois de 3 tentativas — provavelmente a rede de um dos dois lados não consegue se conectar de jeito nenhum, nem pelo TURN.`);
+          }
+        }
       };
 
       addMicTrackToPeer(pc, targetSocketId);
