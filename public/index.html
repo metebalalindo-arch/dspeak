@@ -1391,6 +1391,13 @@
     let micDestNode = null; // .stream daqui é o que de fato mandamos pros outros
     let noiseGateRafId = null;
     const NOISE_GATE_THRESHOLD = 12; // mesma escala do detector de "está falando" (0-255)
+    // ---- TESTE TEMPORÁRIO ----
+    // Desliga TUDO de processamento de microfone (RNNoise, portão de ruído, PTT) —
+    // o áudio sai cru/seco, exatamente como saía antes de mexer em qualquer uma
+    // dessas coisas. É só pra confirmar se os bugs recentes de voz têm a ver com
+    // esse processamento ou não. Depois de confirmado, muda pra "true" nessa
+    // mesma linha e vai testando cada pedaço de volta, um de cada vez.
+    const MIC_PROCESSING_ENABLED = false;
 
     // ---------- Efeitos sonoros da sala (entrar/sair, mutar/desmutar, transmissão) ----------
     // Gerados na hora com osciladores (Web Audio API), sem nenhum arquivo de áudio externo
@@ -1653,12 +1660,12 @@
     let localMicStream = null;
     let micSenders = {};      // socketId -> RTCRtpSender do áudio do microfone
     let peerAudioEls = {};    // socketId -> elemento <audio> escondido tocando a voz remota
-    let selectedMicId = "";
+    let selectedMicId = localStorage.getItem('dspeak_mic_device') || "";
     // Dispositivo de áudio extra pra transmissão de tela (ex: "CABLE Output" de um
     // cabo de áudio virtual) — vazio significa "nenhum", não manda áudio extra nenhum.
     // Fica salvo entre sessões, não precisa escolher de novo toda vez que abrir o app.
     let selectedScreenAudioDeviceId = localStorage.getItem('dspeak_screen_audio_device') || "";
-    let selectedSpeakerId = "";
+    let selectedSpeakerId = localStorage.getItem('dspeak_speaker_device') || "";
 
     // --- Item 2: ping real ---
     let currentPingMs = null;
@@ -1956,6 +1963,8 @@
           else if (d.kind === 'audiooutput') selectSpeaker.appendChild(option);
         });
 
+        if (selectedMicId) selectMic.value = selectedMicId;
+        if (selectedSpeakerId) selectSpeaker.value = selectedSpeakerId;
         if (selectedScreenAudioDeviceId) selectScreenAudio.value = selectedScreenAudioDeviceId;
       } catch (e) { console.error("Erro ao carregar periféricos:", e); }
     }
@@ -1963,6 +1972,7 @@
     // Item 3: troca de microfone em tempo real (também durante uma call ativa)
     async function onMicDeviceChange() {
       selectedMicId = document.getElementById('select-audio-input').value;
+      localStorage.setItem('dspeak_mic_device', selectedMicId);
       startMicTest();
       if (connectedVoiceChannel) await restartLocalMic();
     }
@@ -1975,6 +1985,7 @@
     // Item 3: troca de saída de áudio (alto-falante/fone) em tempo real
     function onSpeakerDeviceChange() {
       selectedSpeakerId = document.getElementById('select-audio-output').value;
+      localStorage.setItem('dspeak_speaker_device', selectedSpeakerId);
       applySinkToAll();
     }
 
@@ -2830,6 +2841,15 @@
       try {
         micProcessingCtx = new (window.AudioContext || window.webkitAudioContext)();
         micSourceNode = micProcessingCtx.createMediaStreamSource(rawStream);
+        micDestNode = micProcessingCtx.createMediaStreamDestination();
+
+        // ---- TESTE TEMPORÁRIO: áudio cru, sem processamento nenhum ----
+        if (!MIC_PROCESSING_ENABLED) {
+          micSourceNode.connect(micDestNode);
+          console.log('[Mic] Processamento DESLIGADO pra teste — áudio saindo cru/sem tratamento nenhum.');
+          return;
+        }
+
         micGateGainNode = micProcessingCtx.createGain();
         micGateGainNode.gain.value = 0.05;
         micDestNode = micProcessingCtx.createMediaStreamDestination();
