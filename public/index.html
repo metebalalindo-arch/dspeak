@@ -1632,71 +1632,29 @@
     // funcionando normal.
     let rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
-    // Fica true assim que um servidor TURN de verdade entra no rtcConfig. Enquanto
-    // for false, as conexões só teriam STUN — o que faz justamente as duplas em rede
-    // restritiva não se ouvirem. Por isso quem vai entrar na voz espera o TURN
-    // carregar antes (ver ensureTurnReady()).
-    let turnLoaded = false;
-    // "Porteira" que abre quando o TURN estiver pronto (ou quando desistirmos depois
-    // de várias tentativas, pra não travar a entrada na voz pra sempre). turnReadyResolve
-    // != null significa que existe uma busca em andamento (ou ainda nem começou a 1ª).
-    let turnReadyResolve = null;
-    let turnReadyPromise = new Promise(resolve => { turnReadyResolve = resolve; });
-
-    // Busca um servidor TURN de verdade assim que a página carrega. Se der erro (sem
-    // internet nesse instante, cota esgotada, serviço fora do ar), tenta DE NOVO com
-    // um intervalo crescente — antes isso rodava só uma vez, então uma única falha na
-    // hora de abrir o app deixava a sessão INTEIRA sem TURN (só STUN), e as duplas em
-    // rede restritiva ficavam sem áudio o resto da sessão, sem nunca tentar de novo.
-    async function loadTurnServers(attempt = 0) {
-      const MAX_ATTEMPTS = 5;
-      const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+    // Busca um servidor TURN de verdade (conta gratuita no metered.ca) assim que a
+    // página carrega — dá tempo de sobra antes de alguém realmente entrar numa
+    // chamada de voz. Se der erro (sem internet nesse instante, cota do plano
+    // gratuito esgotada, serviço fora do ar), o app continua funcionando normal só
+    // com STUN — não trava nada, só perde a "ponte" pra esses casos mais difíceis.
+    async function loadTurnServers() {
       try {
-        // Passa pelo NOSSO servidor (não direto no provedor) — assim a chave da API
-        // nunca fica exposta no código do site, que qualquer pessoa pode ver.
+        // Passa pelo NOSSO servidor agora, não mais direto no metered.ca — assim a
+        // chave da API deles nunca fica exposta no código do site (que qualquer
+        // pessoa pode ver, é assim que todo navegador funciona).
         const response = await fetch('/turn-credentials');
         const iceServers = await response.json();
         if (Array.isArray(iceServers) && iceServers.length > 0) {
           // Mantém o STUN do Google também, de quebra — não faz mal ter mais de uma
           // opção disponível.
           rtcConfig = { iceServers: [...iceServers, { urls: 'stun:stun.l.google.com:19302' }] };
-          turnLoaded = true;
           console.log('[WebRTC] Servidor TURN carregado com sucesso.');
-          if (turnReadyResolve) { turnReadyResolve(); turnReadyResolve = null; }
-          return;
         }
-        throw new Error('A lista de servidores TURN veio vazia.');
       } catch (err) {
-        console.warn(`[WebRTC] Não consegui carregar o servidor TURN (tentativa ${attempt + 1}/${MAX_ATTEMPTS}).`, err);
-        if (attempt + 1 < MAX_ATTEMPTS) {
-          setTimeout(() => loadTurnServers(attempt + 1), RETRY_DELAYS_MS[attempt] || 15000);
-        } else {
-          // Desistimos por ora — libera quem estiver esperando pra não travar a
-          // entrada na voz (segue só com STUN). Uma próxima entrada numa sala dispara
-          // uma nova rodada de tentativas (ver ensureTurnReady), caso a rede volte.
-          console.warn('[WebRTC] Seguindo só com STUN por enquanto — tento de novo na próxima vez que você entrar numa sala de voz.');
-          if (turnReadyResolve) { turnReadyResolve(); turnReadyResolve = null; }
-        }
+        console.warn('[WebRTC] Não foi possível carregar o servidor TURN — seguindo só com STUN.', err);
       }
     }
     loadTurnServers();
-
-    // Espera a busca do TURN terminar (ou já ter desistido) ANTES de montar as
-    // conexões de voz — assim elas já nascem com a ponte TURN, em vez de nascerem só
-    // com STUN por terem sido criadas cedo demais. Se uma rodada anterior tinha
-    // desistido (ficou só com STUN), recomeça agora: a rede pode ter voltado desde
-    // então. Nunca espera pra sempre — no máximo alguns segundos, pra não deixar a
-    // pessoa presa olhando pra tela.
-    function ensureTurnReady() {
-      if (!turnLoaded && turnReadyResolve === null) {
-        turnReadyPromise = new Promise(resolve => { turnReadyResolve = resolve; });
-        loadTurnServers();
-      }
-      return Promise.race([
-        turnReadyPromise,
-        new Promise(resolve => setTimeout(resolve, 6000))
-      ]);
-    }
 
     // --- Item 3: microfone/áudio de voz real ---
     let localMicStream = null;
@@ -3486,13 +3444,10 @@
     // queda momentânea (Wi-Fi engasgando, aba em segundo plano, celular travando a tela).
     function reconnectPeersInCurrentChannel(expectedGeneration) {
       const generation = expectedGeneration !== undefined ? expectedGeneration : voiceConnectionGeneration;
-      // Espera o microfone E o servidor TURN ficarem prontos antes de montar as
-      // conexões — sem esperar o TURN, quem entrasse na sala rápido demais criava
-      // conexões só com STUN, e as duplas em rede restritiva não se ouviam.
-      Promise.all([ensureLocalMic(), ensureTurnReady()]).then(() => {
-        // Se enquanto o microfone/TURN carregava já rolou outra troca de sala mais
-        // nova (ex: puxado de novo rapidamente), essa chamada desiste — evita que as
-        // duas fiquem brigando e a conexão trave.
+      ensureLocalMic().then(() => {
+        // Se enquanto o microfone carregava já rolou outra troca de sala mais nova
+        // (ex: puxado de novo rapidamente), essa chamada desiste — evita que as duas
+        // fiquem brigando e a conexão trave.
         if (generation !== voiceConnectionGeneration) return;
         const usersInChannel = voiceChannelUsers[connectedVoiceChannel] || [];
         usersInChannel.forEach(u => {
@@ -4759,25 +4714,6 @@
       }
     }
 
-    // A ligação com essa pessoa quebrou de vez (ou ficou presa "disconnected" sem
-    // nunca voltar sozinha) — sem isso, ela ficava quebrada pro resto da sessão, sem
-    // nenhuma tentativa nova. restartIce() dispara onnegotiationneeded de novo
-    // sozinho, reaproveitando o mesmo código de mandar oferta que já funciona — só
-    // limitamos quantas vezes tenta, pra não ficar insistindo pra sempre se a rede
-    // genuinamente não conseguir se conectar de jeito nenhum, nem pelo TURN.
-    function attemptIceRestart(pc, targetSocketId) {
-      pc.iceRestartAttempts = (pc.iceRestartAttempts || 0) + 1;
-      if (pc.iceRestartAttempts > 3) {
-        console.warn(`[WebRTC] Desisti de reconectar com ${targetSocketId} depois de 3 tentativas — provavelmente a rede de um dos dois lados não consegue se conectar de jeito nenhum, nem pelo TURN.`);
-        return;
-      }
-      const delay = pc.iceRestartAttempts * 1000;
-      console.log(`[WebRTC] Conexão com ${targetSocketId} caiu (${pc.connectionState}) — tentando de novo em ${delay}ms (tentativa ${pc.iceRestartAttempts}/3)...`);
-      setTimeout(() => {
-        if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') pc.restartIce();
-      }, delay);
-    }
-
     function createPeerConnection(targetSocketId) {
       const existing = peerConnections[targetSocketId];
       if (existing) {
@@ -4791,12 +4727,6 @@
 
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnections[targetSocketId] = pc;
-
-      // Fila de ICE candidates que chegam ANTES de a descrição remota estar pronta.
-      // Sem isso, addIceCandidate falha e o candidate é PERDIDO — se justamente o
-      // candidate de relay (TURN) chegasse antes da hora, aquela dupla podia nunca
-      // conectar. Guardamos aqui e aplicamos em flushPendingCandidates().
-      pc.pendingCandidates = [];
 
       // Papel fixo e igual nos dois lados (comparando os IDs de socket) para resolver
       // colisões de oferta: o lado "educado" recua (rollback) quando as ofertas colidem,
@@ -4893,38 +4823,28 @@
         if (pc.connectionState === 'connected') {
           pc.iceRestartAttempts = 0; // conectou de verdade — zera a contagem pra uma próxima falha (se acontecer bem mais tarde) começar do zero de novo
         } else if (pc.connectionState === 'failed') {
-          attemptIceRestart(pc, targetSocketId);
-        } else if (pc.connectionState === 'disconnected') {
-          // "disconnected" às vezes se recupera sozinho em poucos segundos (rede
-          // engasgou um instante) — mas se continuar assim depois de um tempo, sem
-          // NUNCA virar "connected" de novo nem "failed" (o que já teria disparado a
-          // reconexão acima sozinho), o áudio ficava quebrado no meio da call pro
-          // resto da sessão, sem nenhuma tentativa de voltar. Confere de novo daqui
-          // a alguns segundos, e só age se realmente continuar preso assim.
-          setTimeout(() => {
-            if (pc.connectionState === 'disconnected') attemptIceRestart(pc, targetSocketId);
-          }, 4000);
+          // A ligação falhou de vez (não é um "disconnected" passageiro, que às vezes
+          // se recupera sozinho) — sem isso, ela ficava quebrada pro resto da sessão,
+          // sem nenhuma tentativa nova. restartIce() dispara onnegotiationneeded de
+          // novo sozinho, reaproveitando o mesmo código de mandar oferta que já
+          // funciona — só limitamos quantas vezes tenta, pra não ficar insistindo pra
+          // sempre se a rede genuinamente não conseguir se conectar de jeito nenhum.
+          pc.iceRestartAttempts = (pc.iceRestartAttempts || 0) + 1;
+          if (pc.iceRestartAttempts <= 3) {
+            const delay = pc.iceRestartAttempts * 1000;
+            console.log(`[WebRTC] Conexão com ${targetSocketId} falhou — tentando de novo em ${delay}ms (tentativa ${pc.iceRestartAttempts}/3)...`);
+            setTimeout(() => {
+              if (pc.connectionState === 'failed') pc.restartIce();
+            }, delay);
+          } else {
+            console.warn(`[WebRTC] Desisti de reconectar com ${targetSocketId} depois de 3 tentativas — provavelmente a rede de um dos dois lados não consegue se conectar de jeito nenhum, nem pelo TURN.`);
+          }
         }
       };
 
       addMicTrackToPeer(pc, targetSocketId);
 
       return pc;
-    }
-
-    // Aplica os ICE candidates que ficaram na fila esperando a descrição remota
-    // chegar. Chamada logo depois de todo setRemoteDescription (oferta e resposta).
-    async function flushPendingCandidates(pc, targetSocketId) {
-      if (!pc || !pc.pendingCandidates || pc.pendingCandidates.length === 0) return;
-      const queued = pc.pendingCandidates;
-      pc.pendingCandidates = [];
-      for (const candidate of queued) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (e) {
-          console.error(`[WebRTC] Erro ao aplicar ICE candidate enfileirado de ${targetSocketId}:`, e);
-        }
-      }
     }
 
     async function handleIncomingOffer(data, retriesLeft) {
@@ -4955,9 +4875,6 @@
           await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         }
 
-        // Descrição remota pronta — aplica os candidates que chegaram adiantados.
-        await flushPendingCandidates(pc, data.senderSocketId);
-
         addMicTrackToPeer(pc, data.senderSocketId);
 
         const answer = await pc.createAnswer();
@@ -4984,25 +4901,17 @@
       console.log(`[WebRTC] answer recebida de ${data.senderSocketId} (signalingState=${pc ? pc.signalingState : 'sem pc'}, aplicando=${canApply})`);
       if (canApply) {
         await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-        // Descrição remota pronta — aplica os candidates que chegaram adiantados.
-        await flushPendingCandidates(pc, data.senderSocketId);
       }
     });
 
     socket.on('webrtc-candidate', async (data) => {
       const pc = peerConnections[data.senderSocketId];
-      if (!pc) return;
-      // Se a descrição remota ainda não chegou, guarda o candidate na fila em vez de
-      // tentar aplicar agora (o que daria erro e o perderia) — flushPendingCandidates
-      // aplica tudo assim que setRemoteDescription rodar.
-      if (!pc.remoteDescription) {
-        (pc.pendingCandidates = pc.pendingCandidates || []).push(data.candidate);
-        return;
-      }
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-      } catch (e) {
-        console.error(`[WebRTC] Erro ao adicionar ICE candidate de ${data.senderSocketId}:`, e);
+      if (pc) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (e) {
+          console.error(`[WebRTC] Erro ao adicionar ICE candidate de ${data.senderSocketId}:`, e);
+        }
       }
     });
 
